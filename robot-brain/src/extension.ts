@@ -16,6 +16,7 @@ import { GitSensor } from './sensors/gitSensor';
 import { ExtensionSensor } from './sensors/extensionSensor';
 
 import { PerceptionEngine } from './perception';
+import type { Observation, DiagnosticObservation } from './perception';
 import { ContextEngine } from './context/contextEngine';
 import { DecisionEngine } from './decision';
 import { DecisionType } from './decision/decisionType';
@@ -23,6 +24,7 @@ import { BehaviourController } from './behaviour';
 import { LearningAgent, LearningPublisher } from './learning';
 import type { AvatarExpression } from './core/types';
 import { AIExplanationEngine } from './explanation';
+import type { DiagnosticAnalysisRequest } from './explanation/explanationTypes';
 import { BotXStatusBar } from './ui/statusBar';
 import { BotXCodeActionProvider } from './ui/codeActionProvider';
 import { BotXHoverProvider } from './ui/hoverProvider';
@@ -31,6 +33,9 @@ import { MotionController } from './motionController';
 
 const IGNORE_TIMEOUT_MS = 45000;
 const DISMISS_COOLDOWN_MS = 120000;
+
+const DIAGNOSTIC_ANALYSIS_DEBOUNCE_MS = 1200;
+const CLEAN_BROADCAST_INTERVAL_MS = 15000;
 
 const VALID_EXPRESSIONS: readonly AvatarExpression[] = [
     'happy', 'sad', 'confused', 'thinking', 'neutral',
@@ -42,6 +47,32 @@ function toAvatarExpression(value: unknown, fallback: AvatarExpression = 'neutra
         return value as AvatarExpression;
     }
     return fallback;
+}
+
+function diagnosticSeverityToString(severity: vscode.DiagnosticSeverity): string {
+    switch (severity) {
+        case vscode.DiagnosticSeverity.Error:
+            return "Error";
+        case vscode.DiagnosticSeverity.Warning:
+            return "Warning";
+        case vscode.DiagnosticSeverity.Information:
+            return "Information";
+        case vscode.DiagnosticSeverity.Hint:
+            return "Hint";
+        default:
+            return "Unknown";
+    }
+}
+
+function diagnosticSeverityToObservationType(severity: vscode.DiagnosticSeverity): DiagnosticObservation["type"] {
+    switch (severity) {
+        case vscode.DiagnosticSeverity.Error:
+            return "SYNTAX_ERROR";
+        case vscode.DiagnosticSeverity.Warning:
+            return "WARNING";
+        default:
+            return "INFO";
+    }
 }
 
 interface StuckErrorWatch {
@@ -280,6 +311,134 @@ export function activate(context: vscode.ExtensionContext) {
         Logger.info("MOTION", { "Event": "Explanation ready", "Text": exp.shortText.slice(0, 80) });
         planner.processFromExplanation(exp);
     });
+
+    // -------- 4-Agent Diagnostic Pipeline --------
+    // Perception → Context → Explanation (Gemini) → Behaviour & Motion,
+    // triggered on diagnostics changes or active editor changes.
+
+    let diagnosticAnalysisInFlight = false;
+    let lastBatchKey: { key: string; at: number } | null = null;
+    let lastCleanBroadcastAt = 0;
+
+    async function runDiagnosticAnalysis(obs: Observation): Promise<void> {
+        if (diagnosticAnalysisInFlight) {
+            return;
+        }
+
+        const data = obs.data;
+        const file = String(data["File"] ?? "");
+        const fileName = file.split(/[\\/]/).pop() || file;
+        const errors = (Array.isArray(data["errors"]) ? data["errors"] : []) as Record<string, unknown>[];
+        const errorCount = errors.length;
+
+        if (errorCount === 0) {
+            behaviour.broadcastRobotStateUpdate("HAPPY", "Code looks clean!", 0);
+            return;
+        }
+
+        diagnosticAnalysisInFlight = true;
+        try {
+            // Intermediate state dispatched while Gemini is processing.
+            behaviour.broadcastRobotStateUpdate(
+                "THINKING",
+                `Analyzing ${errorCount} error${errorCount === 1 ? "" : "s"} in ${fileName}...`,
+                errorCount
+            );
+
+            // 2. CONTEXT agent — full file contents, code blocks, language metadata.
+            const ctx = await contextEngine.buildDiagnosticContext(obs);
+
+            // 3. EXPLANATION agent — Gemini analyzes the entire array in one prompt.
+            const request: DiagnosticAnalysisRequest = {
+                file: String(ctx.data["file"] ?? ""),
+                fileName: String(ctx.data["fileName"] ?? ""),
+                language: String(ctx.data["language"] ?? ""),
+                fileContent: String(ctx.data["fileContent"] ?? ""),
+                surroundingCode: (ctx.data["surroundingCode"] as Record<number, string>) ?? {},
+                errors: (ctx.data["errors"] as DiagnosticAnalysisRequest["errors"]) ?? [],
+                warnings: (ctx.data["warnings"] as DiagnosticAnalysisRequest["warnings"]) ?? [],
+                errorCount: Number(ctx.data["errorCount"] ?? 0),
+                warningCount: Number(ctx.data["warningCount"] ?? 0)
+            };
+            const explanation = await explainer.analyzeDiagnostics(request);
+
+            // 4. BEHAVIOUR & MOTION agent — broadcast expression to robot-body.
+            behaviour.broadcastRobotStateUpdate(
+                explanation.expression ?? "CONFUSED",
+                explanation.shortText,
+                explanation.fixCount ?? explanation.fixes?.length ?? 0
+            );
+        } catch (err) {
+            Logger.info("PIPELINE", {
+                "Event": "Diagnostic analysis failed",
+                "Error": String(err)
+            });
+            // Fall back to CONFUSED on Gemini failure / rate limit.
+            behaviour.broadcastRobotStateUpdate("CONFUSED", "I got confused analyzing that — let me try again.", errorCount);
+        } finally {
+            diagnosticAnalysisInFlight = false;
+        }
+    }
+
+    async function triggerDiagnosticAnalysis(): Promise<void> {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor || editor.document.uri.scheme !== "file") {
+            return;
+        }
+
+        const uri = editor.document.uri;
+        const file = editor.document.fileName;
+        const language = editor.document.languageId;
+        const diagnostics = vscode.languages.getDiagnostics(uri);
+        const errorCount = diagnostics.filter(
+            (d) => d.severity === vscode.DiagnosticSeverity.Error
+        ).length;
+
+        const now = Date.now();
+        const key = `${file}:${errorCount}`;
+        if (lastBatchKey && lastBatchKey.key === key && now - lastBatchKey.at < DIAGNOSTIC_ANALYSIS_DEBOUNCE_MS) {
+            return;
+        }
+        lastBatchKey = { key, at: now };
+
+        if (errorCount === 0) {
+            if (now - lastCleanBroadcastAt >= CLEAN_BROADCAST_INTERVAL_MS) {
+                lastCleanBroadcastAt = now;
+                behaviour.broadcastRobotStateUpdate("HAPPY", "Code looks clean!", 0);
+            }
+            return;
+        }
+
+        // 1. PERCEPTION agent — capture ALL errors & warnings in the document.
+        const obs = perception.processDiagnosticBatch(
+            diagnostics.map((d) => ({
+                type: diagnosticSeverityToObservationType(d.severity),
+                details: d.message,
+                line: d.range.start.line + 1,
+                column: d.range.start.character + 1,
+                file,
+                language,
+                severity: diagnosticSeverityToString(d.severity),
+                code: d.code ? String(d.code) : undefined
+            })),
+            { file, language }
+        );
+
+        if (!obs) {
+            return;
+        }
+
+        await runDiagnosticAnalysis(obs);
+    }
+
+    context.subscriptions.push(
+        vscode.languages.onDidChangeDiagnostics(() => {
+            void triggerDiagnosticAnalysis();
+        }),
+        vscode.window.onDidChangeActiveTextEditor(() => {
+            void triggerDiagnosticAnalysis();
+        })
+    );
 
     const MOTION_EXPRESSION_TTL = 60000;
     const motionExpressionMap = new Map<string, { expression: string; addedAt: number }>();

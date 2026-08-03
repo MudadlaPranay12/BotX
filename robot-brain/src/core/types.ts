@@ -30,3 +30,13 @@ export interface WindowAnchorPayload {
     targetY: number;
     alignment: 'left-editor' | 'right-editor' | 'bottom-panel' | 'floating';
 }
+
+export interface RobotStateUpdatePayload {
+    type: 'ROBOT_STATE_UPDATE';
+    payload: {
+        expression: string;
+        speechBubble: string;
+        fixCount: number;
+        timestamp: number;
+    };
+}

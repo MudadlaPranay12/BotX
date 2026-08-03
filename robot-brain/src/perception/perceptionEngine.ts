@@ -95,6 +95,94 @@ export class PerceptionEngine {
         this.process(event);
     }
 
+    /**
+     * Captures ALL diagnostic errors and warnings present in a document in a
+     * single batched observation (not just the first error). The observation
+     * carries the full arrays so downstream agents (context, explanation) can
+     * analyze the entire document instead of a single diagnostic.
+     */
+    processDiagnosticBatch(
+        diagnostics: DiagnosticObservation[],
+        meta?: { file?: string; language?: string }
+    ): Observation | undefined {
+        this.evictStaleSyntaxErrors();
+
+        if (!Array.isArray(diagnostics) || diagnostics.length === 0) {
+            return undefined;
+        }
+
+        const file = meta?.file ?? diagnostics[0]?.file ?? "";
+        const language = meta?.language ?? diagnostics[0]?.language ?? "";
+
+        const errors: Record<string, unknown>[] = [];
+        const warnings: Record<string, unknown>[] = [];
+
+        for (const diagnostic of diagnostics) {
+            const entry: Record<string, unknown> = {
+                line: diagnostic.line,
+                column: diagnostic.column,
+                message: diagnostic.details,
+                severity: diagnostic.severity,
+                code: diagnostic.code,
+                type: diagnostic.type
+            };
+
+            const isError = diagnostic.severity === "Error" ||
+                diagnostic.type === "SYNTAX_ERROR" ||
+                diagnostic.type === "SEMANTIC_ERROR";
+            const isWarning = diagnostic.severity === "Warning" ||
+                diagnostic.type === "WARNING";
+
+            if (isError) {
+                errors.push(entry);
+            } else if (isWarning) {
+                warnings.push(entry);
+            } else {
+                errors.push(entry);
+            }
+        }
+
+        const observation: Observation = {
+            id: `obs-diag-batch-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            type: ObservationType.DIAGNOSTIC_BATCH,
+            timestamp: Date.now(),
+            confidence: errors.length > 0 ? 0.98 : 0.90,
+            source: "DiagnosticsSensor",
+            data: {
+                File: file,
+                Language: language,
+                errors,
+                warnings,
+                errorCount: errors.length,
+                warningCount: warnings.length,
+                totalDiagnostics: diagnostics.length
+            }
+        };
+
+        this.workspaceState.diagnosticCount = diagnostics.length;
+        this.workspaceState.lastEventTime = observation.timestamp;
+
+        if (file) {
+            this.workspaceState.currentFile = file;
+        }
+        if (language) {
+            this.workspaceState.currentLanguage = language;
+        }
+
+        this.publisher.publish(observation);
+
+        Logger.info("PERCEPTION", {
+            "Observation": observation.type,
+            "Source": observation.source,
+            "Errors": String(errors.length),
+            "Warnings": String(warnings.length),
+            "Total": String(diagnostics.length),
+            "File": file.split(/[\\/]/).pop() || file
+        });
+
+        return observation;
+    }
+
     getWorkspaceState(): WorkspaceState {
         return this.workspaceState;
     }

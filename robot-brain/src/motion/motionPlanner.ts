@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { Explanation } from "../explanation/explanationTypes";
 import { ExplanationType } from "../explanation/explanationTypes";
+import type { ExpressionType } from "../ai/gemini";
 import type { BehaviourEvent } from "../behaviour/behaviourPublisher";
 import { BehaviourAction } from "../behaviour/behaviourAction";
 import { MotionType, Motion } from "./motionTypes";
@@ -162,8 +163,9 @@ export class MotionPlanner {
         switch (explanation.type) {
 
             case ExplanationType.WHY_ERROR_HELP: {
+                const expression = this.resolveExplanationExpression(explanation.expression);
                 motions.push(this.createMotion(nextId(), MotionType.SHOW_TEXT_BUBBLE, { text }, now, DEFAULT_TEXT_BUBBLE_DURATION, priority));
-                motions.push(this.createMotion(nextId(), MotionType.CHANGE_EXPRESSION, { expression: "confused" }, now, DEFAULT_EXPRESSION_DURATION, priority));
+                motions.push(this.createMotion(nextId(), MotionType.CHANGE_EXPRESSION, { expression }, now, DEFAULT_EXPRESSION_DURATION, priority));
                 break;
             }
 
@@ -257,6 +259,25 @@ export class MotionPlanner {
                 return "happy";
             default:
                 return undefined;
+        }
+    }
+
+    private resolveExplanationExpression(expression?: ExpressionType): string {
+        switch (expression) {
+            case "HAPPY":
+                return "happy";
+            case "THINKING":
+                return "thinking";
+            case "CONFUSED":
+                return "confused";
+            case "ALERT":
+                return "worried";
+            case "HELPFUL":
+                return "neutral";
+            case "IDLE":
+                return "idle";
+            default:
+                return "confused";
         }
     }
 

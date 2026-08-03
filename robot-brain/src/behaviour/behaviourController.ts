@@ -7,7 +7,7 @@ import { BehaviourPublisher, BehaviourEvent } from "./behaviourPublisher";
 import { FSM } from "./fsm";
 import { Logger } from "../utils/logger";
 import { sendToRobot } from "../utils/websocketServer";
-import type { AvatarExpression, AvatarAction, RobotCommand } from "../core/types";
+import type { AvatarExpression, AvatarAction, RobotCommand, RobotStateUpdatePayload } from "../core/types";
 import type { SkillLevel } from "../learning/skillProfile";
 import { MotionPlanner } from "../motion/motionPlanner";
 
@@ -170,6 +170,31 @@ export class BehaviourController {
 
     getState(): BehaviourState {
         return this.state;
+    }
+
+    /**
+     * Receives the expression output from the explanation agent (Gemini) and
+     * broadcasts a structured ROBOT_STATE_UPDATE message to robot-body.
+     */
+    broadcastRobotStateUpdate(expression: string, speechBubble: string, fixCount: number): void {
+        const payload: RobotStateUpdatePayload = {
+            type: "ROBOT_STATE_UPDATE",
+            payload: {
+                expression,
+                speechBubble,
+                fixCount,
+                timestamp: Date.now()
+            }
+        };
+
+        sendToRobot(payload);
+
+        Logger.info("ROBOT", {
+            "Event": "ROBOT_STATE_UPDATE broadcast",
+            "Expression": expression,
+            "Speech": speechBubble.slice(0, 80),
+            "FixCount": String(fixCount)
+        });
     }
 
     getPublisher(): BehaviourPublisher {

@@ -1,3 +1,5 @@
+import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { ObservationType } from "../perception/observationType";
 import type { Observation } from "../perception/observation";
 import { ContextType } from "./contextType";
@@ -85,6 +87,124 @@ export class ContextEngine {
         return this.publisher;
     }
 
+    /**
+     * Retrieves full file contents, surrounding code blocks around each error,
+     * and language metadata for the file containing the diagnostics. Produces a
+     * DIAGNOSTIC_ANALYSIS context that the explanation agent consumes.
+     */
+    async buildDiagnosticContext(observation: Observation): Promise<Context> {
+        const data = observation.data;
+        const file = String(data["File"] ?? "");
+        const language = String(data["Language"] ?? data["language"] ?? "");
+        const errors = Array.isArray(data["errors"]) ? data["errors"] as Record<string, unknown>[] : [];
+        const warnings = Array.isArray(data["warnings"]) ? data["warnings"] as Record<string, unknown>[] : [];
+
+        const fileContent = await this.readFileContent(file);
+
+        const surroundingCode: Record<number, string> = {};
+        if (fileContent) {
+            const lines = fileContent.split("\n");
+            const blockLines = new Set<number>();
+            for (const diagnostic of [...errors, ...warnings]) {
+                const line = Number(diagnostic["line"] ?? 0);
+                if (line >= 1 && line <= lines.length) {
+                    blockLines.add(line);
+                }
+            }
+            for (const line of blockLines) {
+                const start = Math.max(1, line - 3);
+                const end = Math.min(lines.length, line + 3);
+                surroundingCode[line] = lines
+                    .slice(start - 1, end)
+                    .map((content, index) => `${String(start + index).padStart(4)}: ${content}`)
+                    .join("\n");
+            }
+        }
+
+        const languageMetadata: Record<string, unknown> = {
+            languageId: language,
+            fileExtension: file.split(".").pop() || "",
+            lineCount: fileContent ? fileContent.split("\n").length : 0,
+            fileName: file.split(/[\\/]/).pop() || file,
+            isKnownLanguage: LANGUAGE_MAP[language.toLowerCase()] !== undefined
+        };
+
+        const context: Context = {
+            id: `ctx-diag-${observation.id}-${Date.now()}`,
+            type: ContextType.DIAGNOSTIC_ANALYSIS,
+            confidence: 0.98,
+            timestamp: Date.now(),
+            sourceObservation: observation,
+            data: {
+                ...data,
+                file,
+                fileName: file.split(/[\\/]/).pop() || file,
+                language,
+                fileContent,
+                errors,
+                warnings,
+                errorCount: errors.length,
+                warningCount: warnings.length,
+                totalDiagnostics: Number(data["totalDiagnostics"] ?? 0),
+                surroundingCode,
+                languageMetadata
+            }
+        };
+
+        this.workspaceContext.currentContext = context.type;
+        this.workspaceContext.lastContextTime = context.timestamp;
+        if (file) {
+            this.workspaceContext.currentFile = file;
+        }
+        if (language) {
+            this.workspaceContext.currentLanguage = language;
+        }
+
+        Logger.info("CONTEXT", {
+            "Context": context.type,
+            "Confidence": "0.98",
+            "Source": observation.type,
+            "File": context.data["fileName"] as string,
+            "Language": language,
+            "Errors": String(errors.length),
+            "Warnings": String(warnings.length),
+            "CodeBlocks": String(Object.keys(surroundingCode).length)
+        });
+
+        return context;
+    }
+
+    private async readFileContent(file: string): Promise<string> {
+        if (!file) {
+            return "";
+        }
+
+        try {
+            const document = vscode.workspace.textDocuments.find(
+                (doc) => doc.uri.scheme === "file" && doc.uri.fsPath === file
+            );
+            if (document) {
+                return document.getText();
+            }
+        } catch (err) {
+            Logger.info("CONTEXT", { "Event": "Text document lookup failed", "Error": String(err) });
+        }
+
+        try {
+            const document = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+            return document.getText();
+        } catch (err) {
+            Logger.info("CONTEXT", { "Event": "openTextDocument failed", "Error": String(err) });
+        }
+
+        try {
+            return await fs.promises.readFile(file, "utf-8");
+        } catch (err) {
+            Logger.info("CONTEXT", { "Event": "fs read failed", "Error": String(err) });
+            return "";
+        }
+    }
+
     private resolveBaseMapping(observation: Observation): BaseMapping | undefined {
         switch (observation.type) {
             case ObservationType.FILE_OPENED:
@@ -97,6 +217,12 @@ export class ContextEngine {
 
             case ObservationType.EDITOR_CHANGED:
                 return { contextType: ContextType.SWITCHING_FILES, confidence: 1.0 };
+
+            case ObservationType.DIAGNOSTIC_BATCH:
+                // Batch observations are consumed by the dedicated 4-agent
+                // diagnostic flow (ContextEngine.buildDiagnosticContext) and
+                // should not re-enter the legacy decision pipeline.
+                return undefined;
 
             case ObservationType.SYNTAX_ERROR:
                 return { contextType: ContextType.FIXING_COMPILER_ERROR, confidence: 0.98 };

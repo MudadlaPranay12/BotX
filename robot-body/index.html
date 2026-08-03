@@ -264,6 +264,21 @@
           setChatState('idle', label); targetExpr = 'neutral';
         }
         setExpression(targetExpr);
+      } else if (t === 'ROBOT_STATE_UPDATE') {
+        const p = msg.payload || {};
+        const expr = (p.expression || 'NEUTRAL').toLowerCase();
+        const label = p.speechBubble || 'CONNECTED';
+        let targetExpr = 'neutral';
+        if (expr === 'confused' || expr === 'alert') {
+          setChatState('error', label); targetExpr = 'sad';
+        } else if (expr === 'happy' || expr === 'helpful') {
+          setChatState('fix', label); targetExpr = 'happy';
+        } else if (expr === 'thinking') {
+          setChatState('idle', label); targetExpr = 'thinking';
+        } else {
+          setChatState('idle', label); targetExpr = 'neutral';
+        }
+        setExpression(targetExpr);
       } else if (t === 'CONNECTION_STATUS') {
         setChatState('idle', msg.status === 'CONNECTED' ? 'CONNECTED' : 'DISCONNECTED');
         applyExpressionImmediate('neutral');

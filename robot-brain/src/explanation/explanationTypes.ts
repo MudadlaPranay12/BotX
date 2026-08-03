@@ -1,4 +1,5 @@
 import { BehaviourAction } from "../behaviour/behaviourAction";
+import type { ExpressionType } from "../ai/gemini";
 
 export enum ExplanationType {
     WHY_SUGGESTION = "WHY_SUGGESTION",
@@ -10,6 +11,32 @@ export enum ExplanationType {
     WHY_NONE = "WHY_NONE"
 }
 
+export interface DiagnosticFix {
+    line: number;
+    description: string;
+    suggestedCode: string;
+}
+
+export interface DiagnosticError {
+    line: number;
+    column: number;
+    message: string;
+    severity: string;
+    code?: string;
+}
+
+export interface DiagnosticAnalysisRequest {
+    file: string;
+    fileName: string;
+    language: string;
+    fileContent: string;
+    surroundingCode: Record<number, string>;
+    errors: DiagnosticError[];
+    warnings: DiagnosticError[];
+    errorCount: number;
+    warningCount: number;
+}
+
 export interface Explanation {
     id: string;
     type: ExplanationType;
@@ -18,4 +45,7 @@ export interface Explanation {
     longText: string;
     confidence: number;
     timestamp: number;
+    expression?: ExpressionType;
+    fixes?: DiagnosticFix[];
+    fixCount?: number;
 }

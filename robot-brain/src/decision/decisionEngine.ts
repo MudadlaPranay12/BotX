@@ -77,6 +77,14 @@ export class DecisionEngine {
             };
         }
 
+        if (context.type === ContextType.DIAGNOSTIC_ANALYSIS) {
+            return {
+                decisionType: DecisionType.DO_NOTHING,
+                confidence: 1.0,
+                reason: "Diagnostic analysis handled by the dedicated explanation agent"
+            };
+        }
+
         switch (context.type) {
 
             case ContextType.EDITING_JAVA:

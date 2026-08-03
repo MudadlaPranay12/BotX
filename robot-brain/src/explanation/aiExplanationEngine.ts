@@ -1,10 +1,11 @@
 import { BehaviourAction } from "../behaviour/behaviourAction";
 import type { BehaviourEvent } from "../behaviour/behaviourPublisher";
-import { ExplanationType, Explanation } from "./explanationTypes";
+import { ExplanationType, Explanation, DiagnosticAnalysisRequest, DiagnosticFix } from "./explanationTypes";
 import { ExplanationPublisher } from "./explanationPublisher";
 import { Logger } from "../utils/logger";
 import { VocabularyAdapter } from "../learning/vocabularyAdapter";
 import type { SkillProfile } from "../learning/skillProfile";
+import { GeminiAgentEngine, type ExpressionType, type MultiErrorAnalysisResult } from "../ai/gemini";
 
 interface PromptContext {
     language?: string;
@@ -94,6 +95,95 @@ export class AIExplanationEngine {
 
     getPublisher(): ExplanationPublisher {
         return this.publisher;
+    }
+
+    /**
+     * Analyzes the ENTIRE array of diagnostics in a single Gemini prompt and
+     * publishes an Explanation carrying the 1-2 sentence overview, the array of
+     * line-by-line fixes, and the expression trigger. Falls back to CONFUSED on
+     * any Gemini failure or rate limit.
+     */
+    async analyzeDiagnostics(request: DiagnosticAnalysisRequest): Promise<Explanation> {
+        Logger.info("AI", {
+            "Event": "Analyzing diagnostic batch",
+            "File": request.fileName,
+            "Errors": String(request.errorCount),
+            "Warnings": String(request.warningCount)
+        });
+
+        let result: MultiErrorAnalysisResult;
+        try {
+            const apiKey = await this.resolveApiKey();
+            const engine = new GeminiAgentEngine(apiKey ?? "");
+            result = await engine.analyzeMultipleErrors(request.file, request.fileContent, request.errors);
+        } catch (err) {
+            const reason = err instanceof Error ? err.message : String(err);
+            Logger.info("AI", {
+                "Event": "Diagnostic analysis failed",
+                "Reason": reason
+            });
+            result = {
+                summary: "I hit a snag analyzing the errors — let me try again in a moment.",
+                expression: "CONFUSED",
+                fixes: []
+            };
+        }
+
+        const expression = this.toValidExpression(result.expression);
+        const fixes = Array.isArray(result.fixes) ? result.fixes : [];
+        const fixCount = fixes.length;
+        const shortText = result.summary || "I found some issues worth fixing.";
+
+        const explanation: Explanation = {
+            id: `exp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            type: ExplanationType.WHY_ERROR_HELP,
+            action: BehaviourAction.SHOW_ERROR_HELP,
+            shortText,
+            longText: this.formatFixesAsLongText(fixes) || shortText,
+            confidence: 0.98,
+            timestamp: Date.now(),
+            expression,
+            fixes,
+            fixCount
+        };
+
+        this.lastShortText = shortText;
+        this.publisher.publish(explanation);
+
+        Logger.info("AI EXPLANATION", {
+            "Action": explanation.action,
+            "Explanation": shortText.slice(0, 80),
+            "Expression": expression,
+            "Fixes": String(fixCount),
+            "Confidence": String(explanation.confidence)
+        });
+
+        return explanation;
+    }
+
+    private async resolveApiKey(): Promise<string | undefined> {
+        let apiKey = process.env[GEMINI_API_KEY_ENV];
+        if (!apiKey && this.apiKeyRetriever) {
+            apiKey = await this.apiKeyRetriever();
+        }
+        return apiKey;
+    }
+
+    private toValidExpression(value: unknown): ExpressionType {
+        const valid: readonly string[] = ["IDLE", "THINKING", "HAPPY", "CONFUSED", "HELPFUL", "ALERT"];
+        if (typeof value === "string" && valid.includes(value)) {
+            return value as ExpressionType;
+        }
+        return "CONFUSED";
+    }
+
+    private formatFixesAsLongText(fixes: DiagnosticFix[]): string {
+        if (fixes.length === 0) {
+            return "";
+        }
+        return fixes
+            .map((fix) => `Line ${fix.line}: ${fix.description}\n${fix.suggestedCode}`)
+            .join("\n\n");
     }
 
     private async generateExplanation(

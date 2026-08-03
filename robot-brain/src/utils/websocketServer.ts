@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { Logger } from './logger';
-import type { RobotCommand, WindowAnchorPayload } from '../core/types';
+import type { RobotCommand, WindowAnchorPayload, RobotStateUpdatePayload } from '../core/types';
 
 const clients: Set<WebSocket> = new Set();
 const messageQueue: string[] = [];
@@ -121,8 +121,9 @@ type EditorChangedPayload = { type: "EDITOR_CHANGED" };
 type UserDismissPayload = { type: "USER_DISMISS" };
 type RobotStatePayload = RobotCommand;
 type WindowAnchorPayloadType = WindowAnchorPayload;
+type RobotStateUpdatePayloadType = RobotStateUpdatePayload;
 type WindowVisibilityPayload = { type: "WINDOW_VISIBILITY"; visible: boolean };
-type RobotPayload = CursorMovePayload | ActionPayload | EditorChangedPayload | UserDismissPayload | RobotStatePayload | WindowAnchorPayloadType | WindowVisibilityPayload;
+type RobotPayload = CursorMovePayload | ActionPayload | EditorChangedPayload | UserDismissPayload | RobotStatePayload | WindowAnchorPayloadType | RobotStateUpdatePayloadType | WindowVisibilityPayload;
 
 export function sendToRobot(payload: RobotPayload): void {
     if (payload.type === 'ACTION') {
