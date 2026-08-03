@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body, html {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: transparent !important;
+    }
+    #wrapper {
+      width: 100vw; height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      -webkit-app-region: drag;
+    }
+    #app-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      width: 100%;
+      height: 100%;
+      padding-top: 10px;
+      background: transparent !important;
+      user-select: none;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+
+    .chat-card {
+      order: 1;
+      margin-bottom: 6px;
+      padding: 6px 14px;
+      background: rgba(10, 16, 26, 0.94);
+      border: 1px solid #00f0ff;
+      box-shadow: 0 0 14px rgba(0, 240, 255, 0.35);
+      border-radius: 10px;
+      color: #ffffff;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      text-align: center;
+      backdrop-filter: blur(8px);
+      position: relative;
+      z-index: 10;
+      display: none;
+    }
+    .chat-card::after {
+      content: '';
+      position: absolute;
+      bottom: -7px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0; height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-top: 7px solid #00f0ff;
+    }
+
+    .eilik-robot {
+      order: 2;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      animation: floatAnimation 3.5s ease-in-out infinite;
+    }
+    @keyframes floatAnimation {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-8px); }
+    }
+
+    .robot-svg {
+      width: 125px; height: 150px;
+      overflow: visible;
+    }
+
+    /* ---- Eye Expressions ---- */
+    .eye {
+      transition: all 0.25s ease;
+      fill: #00f0ff;
+    }
+    .eye-spec {
+      transition: opacity 0.25s ease;
+    }
+
+    .happy .left-eye { clip-path: url(#happyLeft); }
+    .happy .right-eye { clip-path: url(#happyRight); }
+    .happy .eye-spec { opacity: 0; }
+
+    .sad .left-eye { clip-path: url(#sadLeft); fill: #ff4d4d; }
+    .sad .right-eye { clip-path: url(#sadRight); fill: #ff4d4d; }
+
+    .confused .left-eye { transform: rotate(15deg); fill: #ffb703; }
+    .confused .right-eye { fill: #ffb703; }
+
+    .thinking .eye {
+      fill: #00b4d8;
+      transform: translateY(-4px) scale(0.75);
+    }
+    .thinking .left-eye { transform-origin: 81px 63px; }
+    .thinking .right-eye { transform-origin: 119px 63px; }
+    .thinking .eye-spec { opacity: 0; }
+
+    /* ---- Arm Hover ---- */
+    .arm-g {
+      transition: transform 0.3s ease;
+      transform-origin: 42px 142px;
+    }
+    .arm-g.right-arm-g {
+      transform-origin: 158px 142px;
+    }
+    .eilik-robot:hover .arm-g { transform: rotate(14deg); }
+    .eilik-robot:hover .right-arm-g { transform: rotate(-14deg); }
+
+    .nod { animation: eilikNod 0.5s ease-in-out !important; }
+    .shake { animation: eilikShake 0.5s ease-in-out !important; }
+    @keyframes eilikNod {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-5px); }
+    }
+    @keyframes eilikShake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-6px) rotate(-3deg); }
+      75% { transform: translateX(6px) rotate(3deg); }
+    }
+  </style>
+</head>
+<body>
+  <div id="wrapper">
+    <div id="app-container">
+      <div class="chat-card" id="chatCard"></div>
+      <div class="eilik-robot" id="robot">
+        <svg class="robot-svg" viewBox="0 0 200 240" width="125" height="150">
+          <defs>
+            <radialGradient id="realBodyGrad" cx="30%" cy="25%" r="75%">
+              <stop offset="0%" stop-color="#ffffff" />
+              <stop offset="45%" stop-color="#f1f5f9" />
+              <stop offset="80%" stop-color="#cbd5e1" />
+              <stop offset="100%" stop-color="#94a3b8" />
+            </radialGradient>
+            <radialGradient id="realGlassGrad" cx="50%" cy="30%" r="70%">
+              <stop offset="0%" stop-color="#1e293b" />
+              <stop offset="40%" stop-color="#0f172a" />
+              <stop offset="100%" stop-color="#020617" />
+            </radialGradient>
+            <filter id="ultraGlow" x="-30%" y="-30%" width="160%" height="160%">
+              <feGaussianBlur stdDeviation="1.5" result="blur1" />
+              <feGaussianBlur stdDeviation="5" result="blur2" />
+              <feMerge>
+                <feMergeNode in="blur2" />
+                <feMergeNode in="blur1" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+            <filter id="dropShadow" x="-10%" y="-10%" width="120%" height="120%">
+              <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000" flood-opacity="0.35" />
+            </filter>
+
+            <!-- Eye Expression Clip Paths -->
+            <clipPath id="happyLeft"><rect x="69" y="63" width="24" height="12" rx="3"/></clipPath>
+            <clipPath id="happyRight"><rect x="107" y="63" width="24" height="12" rx="3"/></clipPath>
+            <clipPath id="sadLeft"><rect x="69" y="52" width="24" height="12" rx="3"/></clipPath>
+            <clipPath id="sadRight"><rect x="107" y="52" width="24" height="12" rx="3"/></clipPath>
+          </defs>
+
+          <!-- Ground Shadow -->
+          <ellipse cx="100" cy="225" rx="45" ry="8" fill="#000000" opacity="0.25" filter="url(#dropShadow)" />
+
+          <!-- Left Arm -->
+          <g class="arm-g" filter="url(#dropShadow)">
+            <ellipse cx="42" cy="142" rx="11" ry="26" fill="url(#realBodyGrad)" />
+            <ellipse cx="38" cy="130" rx="4" ry="12" fill="#ffffff" opacity="0.6" />
+          </g>
+
+          <!-- Right Arm -->
+          <g class="arm-g right-arm-g" filter="url(#dropShadow)">
+            <ellipse cx="158" cy="142" rx="11" ry="26" fill="url(#realBodyGrad)" />
+            <ellipse cx="154" cy="130" rx="4" ry="12" fill="#ffffff" opacity="0.6" />
+          </g>
+
+          <!-- Torso -->
+          <g filter="url(#dropShadow)">
+            <path d="M 62,110 C 62,100 138,100 138,110 C 146,150 136,192 100,192 C 64,192 54,150 62,110 Z" fill="url(#realBodyGrad)" />
+            <path d="M 72,118 C 80,112 120,112 128,118 C 120,130 80,130 72,118 Z" fill="#ffffff" opacity="0.45" />
+            <circle cx="100" cy="148" r="4.5" fill="#38bdf8" opacity="0.9" filter="url(#ultraGlow)" />
+          </g>
+
+          <!-- Neck Shadow -->
+          <ellipse cx="100" cy="104" rx="34" ry="8" fill="#020617" opacity="0.4" />
+
+          <!-- Head -->
+          <g filter="url(#dropShadow)">
+            <ellipse cx="100" cy="62" rx="58" ry="43" fill="url(#realBodyGrad)" />
+            <path d="M 55,42 Q 100,24 145,42 Q 100,32 55,42 Z" fill="#ffffff" opacity="0.75" />
+            <rect x="38" y="52" width="6" height="20" rx="3" fill="#64748b" />
+            <rect x="156" y="52" width="6" height="20" rx="3" fill="#64748b" />
+            <ellipse cx="100" cy="63" rx="45" ry="29" fill="#0f172a" />
+            <ellipse cx="100" cy="63" rx="43" ry="27" fill="url(#realGlassGrad)" />
+            <path d="M 62,48 Q 100,38 138,48 C 125,43 75,43 62,48 Z" fill="#ffffff" opacity="0.35" />
+
+            <g id="eyes" filter="url(#ultraGlow)">
+              <ellipse class="eye left-eye" cx="81" cy="63" rx="9.5" ry="11" />
+              <circle class="eye-spec" cx="79" cy="59" r="2.5" fill="#ffffff" opacity="0.8" />
+              <ellipse class="eye right-eye" cx="119" cy="63" rx="9.5" ry="11" />
+              <circle class="eye-spec" cx="117" cy="59" r="2.5" fill="#ffffff" opacity="0.8" />
+            </g>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const robot = document.getElementById('robot');
+    const chatCard = document.getElementById('chatCard');
+    let bubbleTimeout = null;
+    let expressionTimeout = null;
+    let currentExpression = 'neutral';
+    const EXPRESSION_HOLD_MS = 800;
+
+    function showBubble(text) {
+      chatCard.textContent = text;
+      chatCard.style.display = 'block';
+      if (bubbleTimeout) clearTimeout(bubbleTimeout);
+      bubbleTimeout = setTimeout(() => { chatCard.style.display = 'none'; }, 6000);
+    }
+
+    function setExpression(expr) {
+      if (expressionTimeout) { clearTimeout(expressionTimeout); expressionTimeout = null; }
+      if (expr === currentExpression) { return; }
+      expressionTimeout = setTimeout(() => {
+        robot.className = 'eilik-robot';
+        robot.classList.add(expr);
+        currentExpression = expr;
+        expressionTimeout = null;
+      }, EXPRESSION_HOLD_MS);
+    }
+
+    function applyExpressionImmediate(expr) {
+      if (expressionTimeout) { clearTimeout(expressionTimeout); expressionTimeout = null; }
+      robot.className = 'eilik-robot';
+      robot.classList.add(expr);
+      currentExpression = expr;
+    }
+
+    function handleMessage(data) {
+      const type = (data.type || '').toUpperCase();
+      const animation = data.animation || '';
+      const speech = data.speech || '';
+
+      if (type === 'ACTION') {
+        const expr = (animation || '').toLowerCase();
+        let className = 'neutral';
+        if (expr === 'happy' || expr === 'jump') className = 'happy';
+        else if (expr === 'sad' || expr === 'worried' || expr === 'shocked' || expr === 'alert_red') className = 'sad';
+        else if (expr === 'confused') className = 'confused';
+        else if (expr === 'thinking') className = 'thinking';
+
+        if (className !== currentExpression) setExpression(className);
+
+        const cssAnim = animation === 'nod' || animation === 'shake' ? animation : null;
+        if (cssAnim) {
+          applyExpressionImmediate(currentExpression);
+          robot.classList.add(cssAnim);
+          setTimeout(() => robot.classList.remove(cssAnim), 600);
+        }
+        if (speech) showBubble(speech);
+      } else if (type === 'CONNECTION_STATUS') {
+        if (data.status === 'CONNECTED') applyExpressionImmediate('neutral');
+      } else if (type === 'WINDOW_VISIBILITY') {
+        document.body.style.opacity = data.visible ? '1' : '0.3';
+      }
+    }
+
+    let reconnectAttempt = 0;
+    const MAX_RECONNECT_DELAY = 30000;
+    const BASE_RECONNECT_DELAY = 3000;
+
+    function getReconnectDelay() {
+      const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY);
+      return delay + Math.random() * 3000;
+    }
+
+    function connectWs() {
+      let ws;
+      try {
+        ws = new WebSocket('ws://localhost:8055');
+        ws.onopen = () => { reconnectAttempt = 0; };
+        ws.onmessage = (e) => { try { handleMessage(JSON.parse(e.data)); } catch {} };
+        ws.onclose = () => { const d = getReconnectDelay(); reconnectAttempt++; setTimeout(connectWs, d); };
+        ws.onerror = () => {};
+      } catch (_) { const d = getReconnectDelay(); reconnectAttempt++; setTimeout(connectWs, d); }
+    }
+    connectWs();
+  </script>
+</body>
+</html>

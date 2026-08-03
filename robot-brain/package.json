@@ -1,0 +1,87 @@
+{
+  "name": "robot-brain",
+  "displayName": "Robot Brain",
+  "description": "Sensory-Cognitive-Motor brain — VS Code extension providing proactive AI-driven programming assistance.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.125.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "botx-companion-view",
+          "name": "BotX Companion",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      { "command": "botx.explainError", "title": "Explain Error with BotX", "category": "BotX" },
+      { "command": "botx.showRobot", "title": "Show BotX Companion", "category": "BotX" },
+      { "command": "botx.hideRobot", "title": "Hide BotX Companion", "category": "BotX" },
+      { "command": "botx.setApiKey", "title": "Set BotX API Key", "category": "BotX" }
+    ],
+    "configuration": {
+      "title": "BotX",
+      "properties": {
+        "botx.enableVoice": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable voice responses (currently disabled)"
+        },
+        "botx.autoExplainErrors": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically explain errors"
+        },
+        "botx.cooldownSeconds": {
+          "type": "number",
+          "default": 30,
+          "description": "Cooldown between suggestions in seconds"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "24.x",
+    "@types/vscode": "^1.125.0",
+    "@types/ws": "^8.18.1",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.5.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1"
+  },
+  "overrides": {
+    "diff": "^8.0.4",
+    "serialize-javascript": "^7.0.6"
+  },
+  "dependencies": {
+    "ws": "^8.21.1"
+  }
+}

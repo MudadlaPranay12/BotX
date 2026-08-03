@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Robot Brain Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/robot-brain"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/robot-brain/dist/**/*.js"
+      ],
+      "preLaunchTask": "npm: compile",
+      "presentation": {
+        "group": "brain",
+        "order": 1
+      }
+    }
+  ]
+}

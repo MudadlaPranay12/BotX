@@ -1,0 +1,324 @@
+import { ObservationType } from "../perception/observationType";
+import type { Observation } from "../perception/observation";
+import { ContextType } from "./contextType";
+import { Context } from "./context";
+import { WorkspaceContext } from "./workspaceContext";
+import { ContextPublisher } from "./contextPublisher";
+import { Logger } from "../utils/logger";
+
+interface BaseMapping {
+    contextType: ContextType;
+    confidence: number;
+}
+
+const LANGUAGE_MAP: Record<string, ContextType> = {
+    "java": ContextType.EDITING_JAVA,
+    "typescript": ContextType.EDITING_TYPESCRIPT,
+    "javascript": ContextType.EDITING_TYPESCRIPT,
+    "python": ContextType.EDITING_PYTHON,
+    "cpp": ContextType.EDITING_CPP,
+    "c": ContextType.EDITING_CPP
+};
+
+const STUCK_THRESHOLD_MS = 3000;
+
+const RE_EXPLAIN_DEBOUNCE_MS = 2000;
+
+interface StuckErrorTracker {
+    file: string;
+    line: number;
+    message: string;
+    firstSeen: number;
+    lastSeen: number;
+    count: number;
+    lastEmittedAt: number | null;
+}
+
+export class ContextEngine {
+    private workspaceContext: WorkspaceContext;
+    private publisher: ContextPublisher;
+    private stuckErrorTracker: Map<string, StuckErrorTracker> = new Map();
+
+    constructor() {
+        this.workspaceContext = new WorkspaceContext();
+        this.publisher = new ContextPublisher();
+    }
+
+    process(observation: Observation): void {
+        this.cleanupStaleTrackers();
+
+        const baseMapping = this.resolveBaseMapping(observation);
+
+        if (baseMapping === undefined) {
+            return;
+        }
+
+        const contextType = this.resolveLanguageContext(observation, baseMapping.contextType);
+
+        if (observation.type === ObservationType.EDITOR_CHANGED) {
+            this.clearStuckTrackers();
+        }
+
+        const context = this.buildContext(observation, contextType, baseMapping.confidence);
+
+        this.updateWorkspaceContext(observation, context);
+
+        this.checkStuckOnError(observation);
+
+        this.publisher.publish(context);
+
+        Logger.info("CONTEXT", {
+            "Context": context.type,
+            "Confidence": String(context.confidence),
+            "Source": observation.type,
+            "File": String(context.data["File"] ?? context.data["fileName"] ?? ""),
+            "Language": String(context.data["Language"] ?? context.data["language"] ?? ""),
+            "Timestamp": new Date(context.timestamp).toISOString()
+        });
+    }
+
+    getWorkspaceContext(): WorkspaceContext {
+        return this.workspaceContext;
+    }
+
+    getPublisher(): ContextPublisher {
+        return this.publisher;
+    }
+
+    private resolveBaseMapping(observation: Observation): BaseMapping | undefined {
+        switch (observation.type) {
+            case ObservationType.FILE_OPENED:
+            case ObservationType.CURSOR_MOVED:
+                return { contextType: ContextType.READING_CODE, confidence: 1.0 };
+
+            case ObservationType.FILE_SAVED:
+            case ObservationType.FILE_CREATED:
+                return { contextType: ContextType.WRITING_CODE, confidence: 0.95 };
+
+            case ObservationType.EDITOR_CHANGED:
+                return { contextType: ContextType.SWITCHING_FILES, confidence: 1.0 };
+
+            case ObservationType.SYNTAX_ERROR:
+                return { contextType: ContextType.FIXING_COMPILER_ERROR, confidence: 0.98 };
+
+            case ObservationType.ERROR_DETECTED:
+                return { contextType: ContextType.FIXING_COMPILER_ERROR, confidence: 0.95 };
+
+            case ObservationType.WARNING_DETECTED:
+                return { contextType: ContextType.FIXING_COMPILER_ERROR, confidence: 0.80 };
+
+            case ObservationType.DEBUG_STARTED:
+                return { contextType: ContextType.DEBUGGING, confidence: 1.0 };
+
+            case ObservationType.DEBUG_STOPPED:
+                return { contextType: ContextType.IDLE, confidence: 1.0 };
+
+            case ObservationType.TERMINAL_OPENED:
+                return { contextType: ContextType.USING_TERMINAL, confidence: 1.0 };
+
+            case ObservationType.TERMINAL_CLOSED:
+                return { contextType: ContextType.IDLE, confidence: 1.0 };
+
+            case ObservationType.GIT_BRANCH_CHANGED:
+                return { contextType: ContextType.WORKING_WITH_GIT, confidence: 1.0 };
+
+            case ObservationType.EXTENSION_INSTALLED:
+            case ObservationType.EXTENSION_REMOVED:
+                return { contextType: ContextType.MANAGING_EXTENSIONS, confidence: 1.0 };
+
+            default:
+                return { contextType: ContextType.UNKNOWN, confidence: 0.50 };
+        }
+    }
+
+    private resolveLanguageContext(observation: Observation, baseType: ContextType): ContextType {
+        const language = String(observation.data["Language"] ?? observation.data["language"] ?? "").toLowerCase();
+
+        if (language && language in LANGUAGE_MAP) {
+            return LANGUAGE_MAP[language];
+        }
+
+        return baseType;
+    }
+
+    private buildContext(observation: Observation, contextType: ContextType, confidence: number): Context {
+        return {
+            id: `ctx-${observation.id}`,
+            type: contextType,
+            confidence,
+            timestamp: observation.timestamp,
+            sourceObservation: observation,
+            data: { ...observation.data }
+        };
+    }
+
+    private updateWorkspaceContext(observation: Observation, context: Context): void {
+        this.workspaceContext.currentContext = context.type;
+        this.workspaceContext.lastContextTime = context.timestamp;
+
+        const data = observation.data;
+        const file = String(data["File"] ?? data["fileName"] ?? "");
+        const language = String(data["Language"] ?? data["language"] ?? "");
+        const line = Number(data["Line"] ?? 0);
+        const column = Number(data["Column"] ?? 0);
+        const branch = String(data["Branch"] ?? "");
+
+        if (file) {
+            this.workspaceContext.currentFile = file;
+        }
+
+        if (language) {
+            this.workspaceContext.currentLanguage = language;
+        }
+
+        if (line) {
+            this.workspaceContext.cursorLine = line;
+        }
+
+        if (column) {
+            this.workspaceContext.cursorColumn = column;
+        }
+
+        if (branch) {
+            this.workspaceContext.gitBranch = branch;
+        }
+
+        switch (observation.type) {
+            case ObservationType.ERROR_DETECTED: {
+                const message = String(data["Message"] ?? "");
+                if (message) {
+                    this.workspaceContext.lastError = message;
+                }
+                break;
+            }
+
+            case ObservationType.DEBUG_STARTED: {
+                this.workspaceContext.debuggerActive = true;
+                break;
+            }
+
+            case ObservationType.DEBUG_STOPPED: {
+                this.workspaceContext.debuggerActive = false;
+                break;
+            }
+
+            case ObservationType.TERMINAL_OPENED: {
+                this.workspaceContext.terminalActive = true;
+                break;
+            }
+
+            case ObservationType.TERMINAL_CLOSED: {
+                this.workspaceContext.terminalActive = false;
+                break;
+            }
+
+            default:
+                break;
+        }
+    }
+
+    private isTrackableError(observation: Observation): boolean {
+        return observation.type === ObservationType.SYNTAX_ERROR ||
+               observation.type === ObservationType.ERROR_DETECTED ||
+               observation.type === ObservationType.WARNING_DETECTED;
+    }
+
+    private checkStuckOnError(observation: Observation): void {
+        if (!this.isTrackableError(observation)) {
+            return;
+        }
+
+        const data = observation.data;
+        const file = String(data["File"] ?? data["fileName"] ?? "");
+        const line = Number(data["Line"] ?? 0);
+        const message = String(data["Message"] ?? data["details"] ?? "");
+
+        if (!file || !line || !message) {
+            return;
+        }
+
+        const key = `${file}:${line}:${message}`;
+        const now = Date.now();
+
+        const existing = this.stuckErrorTracker.get(key);
+
+        if (existing) {
+            existing.lastSeen = now;
+            existing.count += 1;
+
+            if (now - existing.firstSeen >= STUCK_THRESHOLD_MS) {
+                const canReEmit = existing.lastEmittedAt === null ||
+                    (now - existing.lastEmittedAt) >= RE_EXPLAIN_DEBOUNCE_MS;
+
+                if (canReEmit) {
+                    this.emitStuckContext(existing, observation);
+                    existing.lastEmittedAt = now;
+                }
+            }
+        } else {
+            this.stuckErrorTracker.set(key, {
+                file,
+                line,
+                message,
+                firstSeen: now,
+                lastSeen: now,
+                count: 1,
+                lastEmittedAt: null
+            });
+        }
+    }
+
+    private emitStuckContext(tracker: StuckErrorTracker, observation: Observation): void {
+        const severity = observation.type === ObservationType.WARNING_DETECTED ? "Warning" : "Error";
+        const context: Context = {
+            id: `ctx-stuck-${tracker.file}-${tracker.line}-${Date.now()}`,
+            type: ContextType.USER_STUCK_ON_ERROR,
+            confidence: 0.95,
+            timestamp: observation.timestamp,
+            sourceObservation: observation,
+            data: {
+                file: tracker.file,
+                line: tracker.line,
+                message: tracker.message,
+                language: this.workspaceContext.currentLanguage,
+                severity,
+                description: `User is stuck on a ${severity.toLowerCase()} in ${tracker.file}`,
+                stuckDurationMs: Date.now() - tracker.firstSeen,
+                errorCount: tracker.count
+            }
+        };
+
+        this.workspaceContext.currentContext = context.type;
+        this.workspaceContext.lastContextTime = context.timestamp;
+
+        this.publisher.publish(context);
+
+        Logger.info("CONTEXT", {
+            "Context": "USER_STUCK_ON_ERROR",
+            "Confidence": "0.95",
+            "Source": `${observation.type}_PERSISTENCE`,
+            "File": tracker.file,
+            "Line": String(tracker.line),
+            "Duration": String(Date.now() - tracker.firstSeen)
+        });
+    }
+
+    private clearStuckTrackers(): void {
+        this.stuckErrorTracker.clear();
+        Logger.info("CONTEXT", {
+            "Context": "STUCK_TRACKERS_CLEARED",
+            "Reason": "Editor switched — resetting error tracking for new file"
+        });
+    }
+
+    private cleanupStaleTrackers(): void {
+        const now = Date.now();
+        const STALE_THRESHOLD_MS = 30000;
+
+        for (const [key, tracker] of this.stuckErrorTracker.entries()) {
+            if (now - tracker.lastSeen > STALE_THRESHOLD_MS) {
+                this.stuckErrorTracker.delete(key);
+            }
+        }
+    }
+}
