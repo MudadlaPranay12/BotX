@@ -44,13 +44,14 @@ export class GeminiAgentEngine {
   public async analyzeMultipleErrors(
     fileName: string,
     fileContent: string,
-    errors: DiagnosticEntry[]
+    errors: DiagnosticEntry[],
+    resolvedDependencies?: string
   ): Promise<MultiErrorAnalysisResult> {
     if (!this.apiKey) {
       throw new Error("Gemini API key not found");
     }
 
-    const prompt = this.buildPrompt(fileName, fileContent, errors);
+    const prompt = this.buildPrompt(fileName, fileContent, errors, resolvedDependencies);
 
     try {
       const data = await this.callGemini(prompt);
@@ -78,10 +79,19 @@ export class GeminiAgentEngine {
     }
   }
 
-  private buildPrompt(fileName: string, fileContent: string, errors: DiagnosticEntry[]): string {
+  private buildPrompt(
+    fileName: string,
+    fileContent: string,
+    errors: DiagnosticEntry[],
+    resolvedDependencies?: string
+  ): string {
     const errorLines = errors
       .map((e, idx) => `${idx + 1}. Line ${e.line} (col ${e.column}): [${e.severity}] ${e.message}`)
       .join("\n");
+
+    const dependenciesBlock = resolvedDependencies
+      ? `Resolved Project Dependencies & Interfaces:\n${resolvedDependencies}\n`
+      : "";
 
     return `
 You are BotX, a helpful paired-programming AI assistant inside a small desktop robot.
@@ -94,6 +104,7 @@ File Context:
 ${fileContent || "(file content unavailable)"}
 \`\`\`
 
+${dependenciesBlock}
 All Diagnostics Found (${errors.length}):
 ${errorLines}
 
@@ -114,6 +125,7 @@ Rules:
 - "summary" must be 1-2 sentences, friendly and beginner-focused.
 - Provide one "fixes" entry per distinct diagnostic where a fix is possible. Keep "suggestedCode" as a precise replacement snippet.
 - "expression" should reflect the overall state: "HAPPY" if issues are trivial/fixed, "CONFUSED" if unclear, "HELPFUL" for straightforward fixes, "ALERT" for serious problems.
+- When "Resolved Project Dependencies & Interfaces" is present, use it to explain CROSS-FILE errors. A diagnostic may be caused by a mismatch between the code in ${fileName} and an imported interface or function signature in the resolved dependency files (e.g. "Error on line 12 is due to interface mismatch in types.ts").
 `;
   }
 

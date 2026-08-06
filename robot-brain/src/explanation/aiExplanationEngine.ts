@@ -1,6 +1,6 @@
 import { BehaviourAction } from "../behaviour/behaviourAction";
 import type { BehaviourEvent } from "../behaviour/behaviourPublisher";
-import { ExplanationType, Explanation, DiagnosticAnalysisRequest, DiagnosticFix } from "./explanationTypes";
+import { ExplanationType, Explanation, DiagnosticAnalysisRequest, DiagnosticFix, LogicReviewRequest } from "./explanationTypes";
 import { ExplanationPublisher } from "./explanationPublisher";
 import { Logger } from "../utils/logger";
 import { VocabularyAdapter } from "../learning/vocabularyAdapter";
@@ -115,7 +115,12 @@ export class AIExplanationEngine {
         try {
             const apiKey = await this.resolveApiKey();
             const engine = new GeminiAgentEngine(apiKey ?? "");
-            result = await engine.analyzeMultipleErrors(request.file, request.fileContent, request.errors);
+            result = await engine.analyzeMultipleErrors(
+                request.file,
+                request.fileContent,
+                request.errors,
+                request.resolvedDependencies
+            );
         } catch (err) {
             const reason = err instanceof Error ? err.message : String(err);
             Logger.info("AI", {
@@ -373,6 +378,103 @@ export class AIExplanationEngine {
             "Keep it concise (1-2 sentences) and encouraging.",
             "Respond in JSON format ONLY with one field:",
             '{ "short": "one-line friendly explanation" }'
+        ].join("\n");
+    }
+
+    /**
+     * Proactive logic review hook. Passes the active file's function context to
+     * Gemini with a specialized prompt focused on logic errors, off-by-one bugs,
+     * and unhandled edge cases (not syntax). Publishes the resulting Explanation
+     * with an ALERT expression and falls back gracefully on any Gemini failure.
+     */
+    async proactiveLogicReview(request: LogicReviewRequest): Promise<Explanation> {
+        Logger.info("AI", {
+            "Event": "Proactive logic review",
+            "File": request.fileName,
+            "Function": request.functionName || "current function"
+        });
+
+        const prompt = this.buildLogicReviewPrompt(request);
+
+        let shortText: string;
+        let longText: string;
+        try {
+            const aiResult = await this.callGeminiWithRetry(prompt);
+            shortText = aiResult.short;
+            longText = aiResult.long || aiResult.short;
+        } catch (err) {
+            const reason = err instanceof Error ? err.message : String(err);
+            Logger.info("AI", {
+                "Event": "Logic review fallback",
+                "Reason": reason
+            });
+            shortText = "If you are stuck, try tracing the values step-by-step or adding a couple of logs — the logic often hides in the details.";
+            longText = shortText;
+        }
+
+        this.lastShortText = shortText;
+
+        const explanation: Explanation = {
+            id: `exp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            type: ExplanationType.WHY_LOGIC_REVIEW,
+            action: BehaviourAction.SHOW_HINT,
+            shortText,
+            longText,
+            confidence: 0.85,
+            timestamp: Date.now(),
+            expression: "ALERT"
+        };
+
+        this.publisher.publish(explanation);
+
+        Logger.info("AI EXPLANATION", {
+            "Action": explanation.action,
+            "Explanation": explanation.shortText.slice(0, 80),
+            "Expression": "ALERT",
+            "Confidence": String(explanation.confidence)
+        });
+
+        return explanation;
+    }
+
+    private buildLogicReviewPrompt(request: LogicReviewRequest): string {
+        const prefix = this.context.skillProfile
+            ? `[Skill Instruction]\n${VocabularyAdapter.buildPromptModifier(this.context.skillProfile)}\n\n`
+            : '';
+
+        const code = request.functionCode || request.fileContent || "(function context unavailable)";
+        const language = request.language || "code";
+        const fileName = request.fileName || "the current file";
+        const functionName = request.functionName || "current function";
+
+        return prefix + [
+            "You are Eilik, a small, highly expressive, and empathetic desktop robot companion for developers.",
+            "",
+            "The developer appears STUCK on a LOGIC bug — the code compiles and runs, but behaves incorrectly.",
+            "Analyze the function below for LOGIC errors ONLY. Do NOT look for syntax problems.",
+            "Focus on:",
+            "1. Off-by-one errors in loops, indices, and slice/boundary math.",
+            "2. Unhandled edge cases (empty input, null/undefined, negative values, min/max boundaries).",
+            "3. Inverted conditions, wrong comparisons, or swapped operands.",
+            "4. Unintended early returns, mutation/alias bugs, or incorrect state updates.",
+            "",
+            "Context:",
+            `- Language: ${language}`,
+            `- File: ${fileName}`,
+            `- Function: ${functionName}`,
+            "",
+            "Function code:",
+            "```",
+            code,
+            "```",
+            "",
+            "Respond with ONLY a JSON object:",
+            '{ "short": "1-2 sentence friendly hint for a tiny speech bubble", "long": "a short, concrete logic analysis with a specific suggestion" }',
+            "",
+            "Rules:",
+            "- 'short' must be EXTREMELY concise and encouraging — it fits in a tiny floating speech bubble.",
+            "- Point out the most likely logic culprit and how to confirm it (e.g. a specific print/log to add).",
+            "- Do not mention syntax at all."
         ].join("\n");
     }
 

@@ -3,12 +3,13 @@ import { RobotBehaviourState } from "./behaviourState";
 type TransitionMap = Record<RobotBehaviourState, RobotBehaviourState[]>;
 
 const ALLOWED_TRANSITIONS: TransitionMap = {
-    [RobotBehaviourState.IDLE]: [RobotBehaviourState.OBSERVING, RobotBehaviourState.DISABLED],
-    [RobotBehaviourState.OBSERVING]: [RobotBehaviourState.THINKING, RobotBehaviourState.DISABLED],
-    [RobotBehaviourState.THINKING]: [RobotBehaviourState.SPEAKING, RobotBehaviourState.DISABLED],
-    [RobotBehaviourState.SPEAKING]: [RobotBehaviourState.WAITING, RobotBehaviourState.DISABLED],
-    [RobotBehaviourState.WAITING]: [RobotBehaviourState.IDLE, RobotBehaviourState.DISABLED],
-    [RobotBehaviourState.COOLDOWN]: [RobotBehaviourState.IDLE, RobotBehaviourState.DISABLED],
+    [RobotBehaviourState.IDLE]: [RobotBehaviourState.OBSERVING, RobotBehaviourState.DISABLED, RobotBehaviourState.PROACTIVE_ASSIST],
+    [RobotBehaviourState.OBSERVING]: [RobotBehaviourState.THINKING, RobotBehaviourState.DISABLED, RobotBehaviourState.PROACTIVE_ASSIST],
+    [RobotBehaviourState.THINKING]: [RobotBehaviourState.SPEAKING, RobotBehaviourState.DISABLED, RobotBehaviourState.PROACTIVE_ASSIST],
+    [RobotBehaviourState.SPEAKING]: [RobotBehaviourState.WAITING, RobotBehaviourState.DISABLED, RobotBehaviourState.PROACTIVE_ASSIST],
+    [RobotBehaviourState.WAITING]: [RobotBehaviourState.IDLE, RobotBehaviourState.DISABLED, RobotBehaviourState.PROACTIVE_ASSIST],
+    [RobotBehaviourState.COOLDOWN]: [RobotBehaviourState.IDLE, RobotBehaviourState.DISABLED, RobotBehaviourState.PROACTIVE_ASSIST],
+    [RobotBehaviourState.PROACTIVE_ASSIST]: [RobotBehaviourState.IDLE, RobotBehaviourState.OBSERVING, RobotBehaviourState.DISABLED],
     [RobotBehaviourState.DISABLED]: [RobotBehaviourState.IDLE]
 };
 

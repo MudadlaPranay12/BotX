@@ -6,6 +6,8 @@ import { ContextType } from "./contextType";
 import { Context } from "./context";
 import { WorkspaceContext } from "./workspaceContext";
 import { ContextPublisher } from "./contextPublisher";
+import { AstDependencyResolver } from "./astDependencyResolver";
+import type { ResolvedDependency } from "./astDependencyResolver";
 import { Logger } from "../utils/logger";
 
 interface BaseMapping {
@@ -40,6 +42,7 @@ export class ContextEngine {
     private workspaceContext: WorkspaceContext;
     private publisher: ContextPublisher;
     private stuckErrorTracker: Map<string, StuckErrorTracker> = new Map();
+    private astDependencyResolver: AstDependencyResolver = new AstDependencyResolver();
 
     constructor() {
         this.workspaceContext = new WorkspaceContext();
@@ -102,9 +105,9 @@ export class ContextEngine {
         const fileContent = await this.readFileContent(file);
 
         const surroundingCode: Record<number, string> = {};
+        const blockLines = new Set<number>();
         if (fileContent) {
             const lines = fileContent.split("\n");
-            const blockLines = new Set<number>();
             for (const diagnostic of [...errors, ...warnings]) {
                 const line = Number(diagnostic["line"] ?? 0);
                 if (line >= 1 && line <= lines.length) {
@@ -129,6 +132,16 @@ export class ContextEngine {
             isKnownLanguage: LANGUAGE_MAP[language.toLowerCase()] !== undefined
         };
 
+        // AST-based import & dependency resolution: parse the broken file and
+        // resolve the exported signatures/interfaces of any imported symbols
+        // referenced on the error lines. Results are cached per file content.
+        const { dependencies, text } = this.resolveDependenciesForFile(
+            file,
+            fileContent,
+            language,
+            blockLines
+        );
+
         const context: Context = {
             id: `ctx-diag-${observation.id}-${Date.now()}`,
             type: ContextType.DIAGNOSTIC_ANALYSIS,
@@ -147,7 +160,9 @@ export class ContextEngine {
                 warningCount: warnings.length,
                 totalDiagnostics: Number(data["totalDiagnostics"] ?? 0),
                 surroundingCode,
-                languageMetadata
+                languageMetadata,
+                resolvedDependencies: dependencies,
+                resolvedDependenciesText: text
             }
         };
 
@@ -168,10 +183,45 @@ export class ContextEngine {
             "Language": language,
             "Errors": String(errors.length),
             "Warnings": String(warnings.length),
-            "CodeBlocks": String(Object.keys(surroundingCode).length)
+            "CodeBlocks": String(Object.keys(surroundingCode).length),
+            "ResolvedDependencies": String(dependencies.length)
         });
 
         return context;
+    }
+
+    /**
+     * Resolves external imports used on the error lines via the AST resolver.
+     * Only attempts resolution for TypeScript/JavaScript files; returns empty
+     * for other languages so non-TS diagnostics are unaffected.
+     */
+    private resolveDependenciesForFile(
+        file: string,
+        fileContent: string,
+        language: string,
+        errorLines: Set<number>
+    ): { dependencies: ResolvedDependency[]; text: string } {
+        const isTsLike = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/i.test(file) ||
+            /^(typescript|javascript|typescriptreact|javascriptreact)$/i.test(language);
+
+        if (!isTsLike || !fileContent) {
+            return { dependencies: [], text: "" };
+        }
+
+        try {
+            const dependencies = this.astDependencyResolver.resolve(file, fileContent, Array.from(errorLines));
+            return {
+                dependencies,
+                text: this.astDependencyResolver.format(dependencies)
+            };
+        } catch (err) {
+            Logger.info("CONTEXT", {
+                "Event": "AST dependency resolution failed",
+                "File": file.split(/[\\/]/).pop() || file,
+                "Error": String(err)
+            });
+            return { dependencies: [], text: "" };
+        }
     }
 
     private async readFileContent(file: string): Promise<string> {

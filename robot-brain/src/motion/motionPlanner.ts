@@ -66,6 +66,37 @@ export class MotionPlanner {
         });
     }
 
+    /**
+     * Progressive Intervention — Phase 1 motion. Emits a low-priority, silent
+     * THINKING expression with no text bubble so the companion acknowledges the
+     * error without firing an intrusive popup. The developer keeps editing space
+     * to fix it first; proactive guidance arrives later via `processFromExplanation`.
+     */
+    processSilentThinking(): void {
+        const now = Date.now();
+        const plan: MotionPlan = {
+            id: `mplan-silent-${now}-${Math.random().toString(36).slice(2, 8)}`,
+            motions: [
+                this.createMotion(`mot-${now}-0`, MotionType.CHANGE_EXPRESSION, { expression: "thinking" }, now, DEFAULT_EXPRESSION_DURATION, 2)
+            ],
+            sourceExplanation: undefined,
+            timestamp: now,
+            isInterruptible: true,
+            priority: 2
+        };
+
+        this.queue.cancel(CancelRule.SAME_TYPE, 'silent-thinking');
+        this.queue.enqueue(plan);
+        this.publishNext();
+
+        Logger.info("MOTION PLANNER", {
+            "Plan ID": plan.id,
+            "Motions": `[${plan.motions.map((m) => this.formatMotion(m)).join(", ")}]`,
+            "Event": "Phase 1 — silent THINKING (no popup)",
+            "Priority": String(plan.priority)
+        });
+    }
+
     publishNext(): void {
         const next = this.queue.dequeue();
         if (!next) {return;}

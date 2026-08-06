@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import { EventType } from "../eventFilter/eventTypes";
 import { AetherEvent } from "../eventFilter/event";
 import { ObservationType } from "./observationType";
@@ -35,9 +36,33 @@ export class PerceptionEngine {
         this.publisher = new ObservationPublisher();
     }
 
+    /**
+     * Strict guard for BotX's "Progressive Intervention" model. Returns false
+     * when the active document is blank/whitespace or has zero compiler
+     * diagnostics, so the caller skips Gemini analysis and speech bubbles
+     * entirely (suppressing background noise on clean files).
+     */
+    shouldAnalyzeDocument(document: vscode.TextDocument, diagnostics: readonly vscode.Diagnostic[]): boolean {
+        if (!document || !document.getText().trim()) {
+            return false;
+        }
+        if (!Array.isArray(diagnostics) || diagnostics.length === 0) {
+            return false;
+        }
+        return true;
+    }
+
     process(event: AetherEvent): void {
         this.evictStaleSyntaxErrors();
         this.workspaceState.lastEventTime = event.timestamp;
+
+        if (this.isSuppressedEvent(event)) {
+            Logger.info("PERCEPTION", {
+                "Event": "Suppressed (blank file) — no Gemini/speech",
+                "Type": event.type
+            });
+            return;
+        }
 
         const mapping = this.resolveMapping(event);
 
@@ -191,6 +216,36 @@ export class PerceptionEngine {
         return this.publisher;
     }
 
+    /**
+     * Guard applied to diagnostic, cursor, and save listeners: when the active
+     * document is blank/whitespace, the background perception pipeline is
+     * suppressed so we never invoke Gemini or dispatch speech bubbles for it.
+     */
+    private isSuppressedEvent(event: AetherEvent): boolean {
+        if (!this.isActiveDocumentBlank()) {
+            return false;
+        }
+        switch (event.type) {
+            case EventType.DIAGNOSTICS_UPDATED:
+            case EventType.CURSOR_MOVED:
+            case EventType.FILE_SAVED:
+            case EventType.EDITOR_ACTIVE:
+            case EventType.EDITOR_SWITCHED:
+            case EventType.EDITOR_OPENED:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private isActiveDocumentBlank(): boolean {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            return false;
+        }
+        return !editor.document.getText().trim();
+    }
+
     private resolveMapping(event: AetherEvent): EventMapping | undefined {
         switch (event.type) {
             case EventType.EDITOR_ACTIVE:
@@ -247,6 +302,12 @@ export class PerceptionEngine {
 
             case EventType.EXTENSION_UNINSTALLED:
                 return { observationType: ObservationType.EXTENSION_REMOVED, confidence: 1.0 };
+
+            case EventType.STUCK_RAPID_SAVE:
+                return { observationType: ObservationType.STUCK_RAPID_SAVE, confidence: 0.90 };
+
+            case EventType.STUCK_IDLE_FOCUS:
+                return { observationType: ObservationType.STUCK_IDLE_FOCUS, confidence: 0.85 };
 
             default:
                 return undefined;

@@ -10,6 +10,8 @@ import { sendToRobot } from "../utils/websocketServer";
 import type { AvatarExpression, AvatarAction, RobotCommand, RobotStateUpdatePayload } from "../core/types";
 import type { SkillLevel } from "../learning/skillProfile";
 import { MotionPlanner } from "../motion/motionPlanner";
+import type { EnvironmentStatus } from "../sensors/environmentSensor";
+import type { DeprecatedApiUsage } from "../sensors/importInspector";
 
 export class BehaviourController {
     private state: BehaviourState;
@@ -96,6 +98,251 @@ export class BehaviourController {
         });
 
         this.runTimedStateMachine(action);
+    }
+
+    /**
+     * Progressive Intervention — Phase 1 (Developer Tries First). When a
+     * squiggly error appears, transition the FSM to THINKING silently: no
+     * popup, no WebSocket broadcast, no edits to the user's code. The developer
+     * keeps the space to fix it on their own first.
+     */
+    enterThinkingSilently(): void {
+        if (!this.state.robotEnabled) {
+            return;
+        }
+        if (this.state.currentState !== RobotBehaviourState.IDLE &&
+            this.state.currentState !== RobotBehaviourState.OBSERVING) {
+            return;
+        }
+        this.fsm.transition(RobotBehaviourState.OBSERVING);
+        this.fsm.transition(RobotBehaviourState.THINKING);
+        this.state.currentState = RobotBehaviourState.THINKING;
+        this.state.lastAction = BehaviourAction.SHOW_HINT;
+        this.state.lastActionTime = Date.now();
+        Logger.info("BEHAVIOUR", {
+            "State": RobotBehaviourState.THINKING,
+            "Event": "Phase 1 — silent THINKING (developer tries first)"
+        });
+    }
+
+    /**
+     * Cleanly forces the robot back to IDLE without broadcasting any speech
+     * bubble or intermediate alert. Used by the guard clause when a file is
+     * blank/whitespace or has zero diagnostics.
+     */
+    forceIdle(): void {
+        this.state.currentState = RobotBehaviourState.IDLE;
+        this.state.lastAction = BehaviourAction.NONE;
+        this.state.lastActionTime = 0;
+        this.fsm.reset();
+        Logger.info("BEHAVIOUR", {
+            "State": RobotBehaviourState.IDLE,
+            "Event": "Guard clause — clean IDLE (no speech)"
+        });
+    }
+
+    /**
+     * Receives a STUCK_* observation from the Perception Engine (e.g. rapid
+     * saves or idle code focus). Transitions the FSM to PROACTIVE_ASSIST and
+     * dispatches an immediate intermediate state to robot-body via WebSocket.
+     */
+    onStuckObservation(observation: { type: string; timestamp: number; data?: Record<string, unknown> }): void {
+        if (!this.state.robotEnabled) {
+            return;
+        }
+
+        if (this.state.isBusy || this.stateMachineRunning) {
+            Logger.info("BEHAVIOUR", {
+                "State": "BLOCKED",
+                "Observation": observation.type,
+                "Reason": "Behaviour busy, skipping proactive assist"
+            });
+            return;
+        }
+
+        this.fsm.transition(RobotBehaviourState.PROACTIVE_ASSIST);
+        this.state.currentState = RobotBehaviourState.PROACTIVE_ASSIST;
+        this.state.lastAction = BehaviourAction.SHOW_HINT;
+        this.state.lastActionTime = Date.now();
+
+        Logger.info("BEHAVIOUR", {
+            "State": RobotBehaviourState.PROACTIVE_ASSIST,
+            "Observation": observation.type,
+            "Reason": "Stuck state detected"
+        });
+
+        this.broadcastRobotStateUpdate(
+            "ALERT",
+            "Looks like you might be stuck here! Need a quick logic review?",
+            0
+        );
+
+        // Let the robot return to a neutral state so it can act again.
+        setTimeout(() => {
+            if (this.state.currentState === RobotBehaviourState.PROACTIVE_ASSIST) {
+                this.fsm.transition(RobotBehaviourState.IDLE);
+                this.state.currentState = RobotBehaviourState.IDLE;
+            }
+        }, 8000);
+    }
+
+    /**
+     * Reacts to a workspace environment check (EnvironmentSensor). Missing env
+     * variables or uninstalled packages transition the FSM to PROACTIVE_ASSIST
+     * (Phase 1) and dispatch a non-intrusive speech bubble to robot-body
+     * (Phase 2). A cleanly configured workspace returns the robot to IDLE.
+     */
+    onEnvironmentStatus(status: EnvironmentStatus): void {
+        if (!this.state.robotEnabled) {
+            return;
+        }
+
+        if (status.clean) {
+            if (this.state.currentState !== RobotBehaviourState.IDLE) {
+                this.forceIdle();
+            }
+            return;
+        }
+
+        if (this.state.isBusy || this.stateMachineRunning) {
+            Logger.info("BEHAVIOUR", {
+                "State": "BLOCKED",
+                "Event": "Environment status ignored",
+                "Reason": "Behaviour busy, skipping environment alert"
+            });
+            return;
+        }
+
+        const missingKeyCount = status.missingEnvKeys.length;
+        const dependenciesMissing = status.hasPackageJson && !status.dependenciesInstalled;
+
+        // Phase 1 — set robot state to WORRIED/ALERT.
+        this.fsm.transition(RobotBehaviourState.PROACTIVE_ASSIST);
+        this.state.currentState = RobotBehaviourState.PROACTIVE_ASSIST;
+        this.state.lastAction = BehaviourAction.SHOW_WARNING;
+        this.state.lastActionTime = Date.now();
+
+        Logger.info("BEHAVIOUR", {
+            "State": RobotBehaviourState.PROACTIVE_ASSIST,
+            "Event": "Workspace setup incomplete",
+            "Missing env keys": String(missingKeyCount),
+            "Dependencies installed": dependenciesMissing ? "No" : "Yes"
+        });
+
+        // Phase 2 — dispatch a non-intrusive speech bubble to robot-body.
+        const parts: string[] = [];
+        if (missingKeyCount > 0) {
+            parts.push(`${missingKeyCount} environment key${missingKeyCount === 1 ? "" : "s"} missing`);
+        }
+        if (dependenciesMissing) {
+            parts.push("dependencies not installed");
+        }
+        const speech = `Workspace setup incomplete: ${parts.join(", ")}.`;
+        const expression = dependenciesMissing && missingKeyCount === 0 ? "ALERT" : "worried";
+        this.broadcastRobotStateUpdate(expression, speech, missingKeyCount);
+
+        // Let the robot return to a neutral state so it can act again.
+        setTimeout(() => {
+            if (this.state.currentState === RobotBehaviourState.PROACTIVE_ASSIST) {
+                this.fsm.transition(RobotBehaviourState.IDLE);
+                this.state.currentState = RobotBehaviourState.IDLE;
+            }
+        }, 8000);
+    }
+
+    /**
+     * Reacts to a Git merge conflict detected in an open document
+     * (GitConflictSensor). Phase 1 silently transitions the FSM to
+     * PROACTIVE_ASSIST (ALERT/CONFUSED). Phase 2 broadcasts a speech bubble to
+     * robot-body summarizing how many conflict blocks need attention.
+     */
+    onGitConflictDetected(conflictCount: number, fileName: string): void {
+        if (!this.state.robotEnabled) {
+            return;
+        }
+
+        if (this.state.isBusy || this.stateMachineRunning) {
+            Logger.info("BEHAVIOUR", {
+                "State": "BLOCKED",
+                "Event": "Git conflict alert ignored",
+                "Reason": "Behaviour busy"
+            });
+            return;
+        }
+
+        // Phase 1 — silent ALERT/CONFUSED transition.
+        this.fsm.transition(RobotBehaviourState.PROACTIVE_ASSIST);
+        this.state.currentState = RobotBehaviourState.PROACTIVE_ASSIST;
+        this.state.lastAction = BehaviourAction.SHOW_GIT_HELP;
+        this.state.lastActionTime = Date.now();
+
+        Logger.info("BEHAVIOUR", {
+            "State": RobotBehaviourState.PROACTIVE_ASSIST,
+            "Event": "Git merge conflict detected",
+            "File": fileName,
+            "Blocks": String(conflictCount)
+        });
+
+        // Phase 2 — speech bubble to robot-body (port 8055).
+        const label = conflictCount === 1 ? "block" : "blocks";
+        this.broadcastRobotStateUpdate(
+            "ALERT",
+            `Git Merge Conflict: ${conflictCount} ${label} need resolution in this file.`,
+            conflictCount
+        );
+
+        // Let the robot return to a neutral state so it can act again.
+        setTimeout(() => {
+            if (this.state.currentState === RobotBehaviourState.PROACTIVE_ASSIST) {
+                this.fsm.transition(RobotBehaviourState.IDLE);
+                this.state.currentState = RobotBehaviourState.IDLE;
+            }
+        }, 8000);
+    }
+
+    /**
+     * Reacts to all conflict markers being removed from a document. Transitions
+     * the robot cleanly back to HAPPY/IDLE.
+     */
+    onGitConflictResolved(fileName: string): void {
+        if (!this.state.robotEnabled) {
+            return;
+        }
+
+        this.forceIdle();
+        this.broadcastRobotStateUpdate("HAPPY", "Conflict resolved — nice work!", 0);
+        Logger.info("BEHAVIOUR", {
+            "State": RobotBehaviourState.IDLE,
+            "Event": "Git conflict resolved",
+            "File": fileName
+        });
+    }
+
+    /**
+     * Phase 1 of deprecated API detection. Silently transitions the FSM to
+     * THINKING so the developer keeps their flow; the non-intrusive speech
+     * bubble (Phase 2) is dispatched post-debounce by the extension wiring.
+     */
+    onDeprecatedApiDetected(deprecations: DeprecatedApiUsage[]): void {
+        if (!this.state.robotEnabled) {
+            return;
+        }
+        if (this.state.currentState !== RobotBehaviourState.IDLE &&
+            this.state.currentState !== RobotBehaviourState.OBSERVING) {
+            return;
+        }
+
+        this.fsm.transition(RobotBehaviourState.OBSERVING);
+        this.fsm.transition(RobotBehaviourState.THINKING);
+        this.state.currentState = RobotBehaviourState.THINKING;
+        this.state.lastAction = BehaviourAction.SHOW_WARNING;
+        this.state.lastActionTime = Date.now();
+
+        Logger.info("BEHAVIOUR", {
+            "State": RobotBehaviourState.THINKING,
+            "Event": "Phase 1 — silent THINKING (deprecated API)",
+            "Deprecations": String(deprecations.length)
+        });
     }
 
     private async runTimedStateMachine(action: BehaviourAction): Promise<void> {

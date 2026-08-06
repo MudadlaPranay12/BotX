@@ -7,6 +7,7 @@ export enum RobotBehaviourState {
     SPEAKING = "SPEAKING",
     WAITING = "WAITING",
     COOLDOWN = "COOLDOWN",
+    PROACTIVE_ASSIST = "PROACTIVE_ASSIST",
     DISABLED = "DISABLED"
 }
 

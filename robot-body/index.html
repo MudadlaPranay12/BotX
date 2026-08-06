@@ -31,21 +31,33 @@
     .chat-card {
       order: 1;
       margin-bottom: 6px;
-      padding: 6px 14px;
+      padding: 9px 14px;
+      min-height: 42px;
+      height: auto;
+      max-width: 280px;
+      max-height: 300px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
       background: rgba(10, 16, 26, 0.94);
       border: 1px solid #00f0ff;
       box-shadow: 0 0 14px rgba(0, 240, 255, 0.35);
-      border-radius: 10px;
+      border-radius: 12px;
       color: #ffffff;
       font-family: 'Segoe UI', system-ui, sans-serif;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.6px;
-      text-transform: uppercase;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
       text-align: center;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      line-height: 1.5;
       backdrop-filter: blur(8px);
       position: relative;
       z-index: 10;
+      scrollbar-width: thin;
+      transition: border-color 0.35s ease, box-shadow 0.35s ease;
+      -webkit-app-region: no-drag;
     }
     .chat-card::after {
       content: '';
@@ -58,6 +70,26 @@
       border-right: 6px solid transparent;
       border-top: 7px solid #00f0ff;
     }
+    .chat-card.state-idle { border-color: #00f0ff; box-shadow: 0 0 14px rgba(0, 240, 255, 0.35); }
+    .chat-card.state-idle::after { border-top-color: #00f0ff; }
+    .chat-card.state-thinking { border-color: #00b4d8; box-shadow: 0 0 14px rgba(0, 180, 216, 0.35); }
+    .chat-card.state-thinking::after { border-top-color: #00b4d8; }
+    .chat-card.state-fix { border-color: #00ff88; box-shadow: 0 0 14px rgba(0, 255, 136, 0.35); }
+    .chat-card.state-fix::after { border-top-color: #00ff88; }
+    .chat-card.state-confused { border-color: #ffb703; box-shadow: 0 0 14px rgba(255, 183, 3, 0.35); }
+    .chat-card.state-confused::after { border-top-color: #ffb703; }
+    .chat-card.state-error { border-color: #ff4d4d; box-shadow: 0 0 14px rgba(255, 77, 77, 0.4); }
+    .chat-card.state-error::after { border-top-color: #ff4d4d; }
+    .chat-card.typing::after {
+      content: '▍';
+      border: none;
+      position: static;
+      transform: none;
+      display: inline-block;
+      margin-left: 1px;
+      animation: caretBlink 0.9s steps(1) infinite;
+    }
+    @keyframes caretBlink { 0%, 50% { opacity: 1; } 50.1%, 100% { opacity: 0; } }
 
     .eilik-robot {
       order: 2;
@@ -65,53 +97,106 @@
       justify-content: center;
       align-items: center;
       position: relative;
-      animation: floatAnimation 3.5s ease-in-out infinite;
+      flex-shrink: 0;
     }
-    @keyframes floatAnimation {
+    .robot-scale {
+      transform-origin: top center;
+      will-change: transform;
+      transition: transform 0.3s ease;
+    }
+    #robot.expr-idle { animation: floatIdle 4.2s ease-in-out infinite; }
+    #robot.expr-thinking { animation: thinkRock 2.4s ease-in-out infinite; }
+    #robot.expr-alert { animation: alertJitter 0.7s ease-in-out 3; }
+    #robot.expr-happy { animation: happyBounce 0.9s ease-in-out 2; }
+    @keyframes floatIdle {
       0%, 100% { transform: translateY(0px); }
       50% { transform: translateY(-8px); }
+    }
+    @keyframes thinkRock {
+      0%, 100% { transform: translateY(0) rotate(0deg); }
+      50% { transform: translateY(-6px) rotate(1.5deg); }
+    }
+    @keyframes alertJitter {
+      0%, 100% { transform: translateY(0); }
+      25% { transform: translateY(-3px); }
+      50% { transform: translateY(-6px); }
+      75% { transform: translateY(-3px); }
+    }
+    @keyframes happyBounce {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-9px) scale(1.03); }
     }
 
     .robot-svg {
       width: 125px; height: 150px;
       overflow: visible;
+      transform-box: fill-box;
+      transform-origin: center;
+      will-change: transform;
+    }
+    #robot.expr-idle .robot-svg { animation: breathe 5.5s ease-in-out infinite; }
+    #robot.expr-happy .robot-svg { animation: happySpin 0.8s ease-in-out 2; }
+    #robot.expr-confused .robot-svg { animation: confusedTilt 1.4s ease-in-out; }
+    #robot.expr-helpful .robot-svg { animation: breathe 3.5s ease-in-out infinite; }
+
+    @keyframes breathe {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.015); }
+    }
+    @keyframes happySpin {
+      0%, 100% { transform: scale(1) rotate(0deg); }
+      50% { transform: scale(1.04) rotate(-3deg); }
+    }
+    @keyframes confusedTilt {
+      0%, 100% { transform: rotate(0deg); }
+      25% { transform: rotate(-3deg); }
+      50% { transform: translateY(-3px); }
+      75% { transform: rotate(3deg); }
     }
 
-    /* ---- Eye Expressions ---- */
     .eye {
-      transition: all 0.25s ease;
+      transition: fill 0.35s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease;
       fill: var(--eye-color, #00f0ff);
     }
-    .eye-spec {
-      transition: opacity 0.25s ease;
+    .eye-spec { transition: opacity 0.25s ease; }
+    .left-eye { transform-origin: 81px 63px; }
+    .right-eye { transform-origin: 119px 63px; }
+
+    .expr-happy .left-eye { clip-path: url(#happyLeft); }
+    .expr-happy .right-eye { clip-path: url(#happyRight); }
+    .expr-happy .eye-spec { opacity: 0; }
+    .expr-happy .eye { fill: #00ff88; }
+
+    .expr-confused .left-eye { transform: rotate(18deg); fill: #ffb703; }
+    .expr-confused .right-eye { fill: #ffb703; }
+
+    .expr-thinking .eye { fill: #00b4d8; transform: translateY(-5px) scale(0.72); }
+    .expr-thinking .eye-spec { opacity: 0; }
+
+    .expr-helpful .eye { fill: #00ff88; }
+
+    .expr-alert .eye { fill: #ff4d4d; transform: scale(1.4); }
+    .expr-alert .eye-spec { opacity: 0; }
+
+    .blinking .eye { transform: scaleY(0.08) !important; }
+    .blinking .eye-spec { opacity: 0; }
+
+    #mouthStroke {
+      transition: opacity 0.3s ease, stroke 0.35s ease;
     }
-
-    .happy .left-eye { clip-path: url(#happyLeft); }
-    .happy .right-eye { clip-path: url(#happyRight); }
-    .happy .eye-spec { opacity: 0; }
-
-    .sad .left-eye { clip-path: url(#sadLeft); fill: #ff4d4d; }
-    .sad .right-eye { clip-path: url(#sadRight); fill: #ff4d4d; }
-
-    .confused .left-eye { transform: rotate(15deg); fill: #ffb703; }
-    .confused .right-eye { fill: #ffb703; }
-
-    .thinking .eye {
-      fill: #00b4d8;
-      transform: translateY(-4px) scale(0.75);
+    #mouthOpen {
+      transform-origin: 100px 86px;
+      transform: scale(0.6);
+      transition: opacity 0.3s ease, transform 0.3s ease;
     }
-    .thinking .left-eye { transform-origin: 81px 63px; }
-    .thinking .right-eye { transform-origin: 119px 63px; }
-    .thinking .eye-spec { opacity: 0; }
+    .expr-alert #mouthStroke { opacity: 0; }
+    .expr-alert #mouthOpen { opacity: 1; transform: scale(1); }
 
-    /* ---- Arm Hover ---- */
     .arm-g {
       transition: transform 0.3s ease;
       transform-origin: 42px 142px;
     }
-    .arm-g.right-arm-g {
-      transform-origin: 158px 142px;
-    }
+    .arm-g.right-arm-g { transform-origin: 158px 142px; }
     .eilik-robot:hover .arm-g { transform: rotate(14deg); }
     .eilik-robot:hover .right-arm-g { transform: rotate(-14deg); }
 
@@ -133,6 +218,7 @@
     <div id="app-container">
       <div class="chat-card" id="chatCard">CONNECTED</div>
       <div class="eilik-robot" id="robot">
+        <div class="robot-scale" id="robotScale">
         <svg class="robot-svg" viewBox="0 0 200 240" width="125" height="150">
           <defs>
             <radialGradient id="realBodyGrad" cx="30%" cy="25%" r="75%">
@@ -200,8 +286,14 @@
               <ellipse class="eye right-eye" cx="119" cy="63" rx="9.5" ry="11" />
               <circle class="eye-spec" cx="117" cy="59" r="2.5" fill="#ffffff" opacity="0.8" />
             </g>
+
+            <g id="mouthGroup">
+              <path id="mouthStroke" fill="none" stroke="var(--face-color, #00f0ff)" stroke-width="3" stroke-linecap="round" d="M 93,85 C 97,89 103,89 107,85" />
+              <path id="mouthOpen" fill="#0f172a" stroke="var(--face-color, #00f0ff)" stroke-width="2.5" opacity="0" d="M 95,86 A 5,5 0 1 0 105,86 A 5,5 0 1 0 95,86 Z" />
+            </g>
           </g>
         </svg>
+        </div>
       </div>
     </div>
   </div>
@@ -211,115 +303,335 @@
     const robot = document.getElementById('robot');
     const root = document.documentElement;
     const chatCard = document.getElementById('chatCard');
+    const robotScale = document.getElementById('robotScale');
+    const mouthStroke = document.getElementById('mouthStroke');
+    const mouthOpen = document.getElementById('mouthOpen');
 
-    let stateTimeout = null;
-    let currentState = 'neutral';
-    const STATE_HOLD_MS = 800;
-
-    const palette = {
-      idle:  '#00f0ff',
-      error: '#ff4444',
-      fix:   '#00ff88'
+    const VALID_STATES = new Set(['IDLE', 'THINKING', 'HAPPY', 'CONFUSED', 'HELPFUL', 'ALERT']);
+    const ACCENTS = {
+      IDLE: '#00f0ff',
+      THINKING: '#00b4d8',
+      HAPPY: '#00ff88',
+      CONFUSED: '#ffb703',
+      HELPFUL: '#00ff88',
+      ALERT: '#ff4d4d'
     };
+    const ACCENT_CLASS = {
+      IDLE: 'state-idle',
+      THINKING: 'state-thinking',
+      HAPPY: 'state-fix',
+      CONFUSED: 'state-confused',
+      HELPFUL: 'state-fix',
+      ALERT: 'state-error'
+    };
+    const MOUTHS = {
+      IDLE:     { p0: { x: 93, y: 85 }, c1: { x: 97, y: 89 }, c2: { x: 103, y: 89 }, p3: { x: 107, y: 85 } },
+      THINKING: { p0: { x: 91, y: 86 }, c1: { x: 96, y: 84 }, c2: { x: 102, y: 84 }, p3: { x: 109, y: 86 } },
+      HAPPY:    { p0: { x: 88, y: 85 }, c1: { x: 96, y: 96 }, c2: { x: 104, y: 96 }, p3: { x: 112, y: 85 } },
+      CONFUSED: { p0: { x: 88, y: 87 }, c1: { x: 94, y: 80 }, c2: { x: 100, y: 89 }, p3: { x: 112, y: 86 } },
+      HELPFUL:  { p0: { x: 90, y: 85 }, c1: { x: 96, y: 93 }, c2: { x: 104, y: 93 }, p3: { x: 110, y: 85 } },
+      ALERT:    { p0: { x: 95, y: 84 }, c1: { x: 97, y: 90 }, c2: { x: 103, y: 90 }, p3: { x: 105, y: 84 } }
+    };
+    const TRANSIENT_HOLD_MS = { HAPPY: 6000, CONFUSED: 6000, HELPFUL: 6000, THINKING: 10000 };
+    const BUBBLE_HOLD_MS = 4000;
+    const ROBOT_BASE_H = 150;
+    const ROBOT_MIN_H = 52;
+    const BUBBLE_MIN_H = 42;
+    const BUBBLE_MAX_H = 300;
+    const APP_PAD_TOP = 10;
+    const BUBBLE_GAP = 6;
 
-    function setExpression(expr) {
-      if (stateTimeout) { clearTimeout(stateTimeout); stateTimeout = null; }
-      if (expr === currentState) { return; }
-      stateTimeout = setTimeout(() => {
-        robot.className = 'eilik-robot';
-        robot.classList.add(expr);
-        currentState = expr;
-        stateTimeout = null;
-      }, STATE_HOLD_MS);
+    let currentMouth = null;
+    let mouthTween = null;
+    let blinkTimer = null;
+    let blinkOffTimer = null;
+    let typeTimer = null;
+    let dismissTimer = null;
+    let lastStatus = 'CONNECTED';
+    let pendingLayout = false;
+
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+    function fitToWindow() {
+      var avail = window.innerHeight - APP_PAD_TOP;
+      var contentH = chatCard.scrollHeight;
+      var availBubble = avail - ROBOT_MIN_H - BUBBLE_GAP;
+      var targetBubble = clamp(contentH, BUBBLE_MIN_H, Math.min(availBubble, BUBBLE_MAX_H));
+      var maxH = Math.floor(targetBubble);
+      if (chatCard._fitMaxH !== maxH) {
+        chatCard._fitMaxH = maxH;
+        chatCard.style.maxHeight = maxH + 'px';
+      }
+      var bubbleActual = chatCard.offsetHeight;
+      var robotSpace = avail - bubbleActual - BUBBLE_GAP;
+      var scale = clamp(robotSpace / ROBOT_BASE_H, ROBOT_MIN_H / ROBOT_BASE_H, 1);
+      if (robotScale._fitScale !== scale) {
+        robotScale._fitScale = scale;
+        robotScale.style.transform = 'scale(' + scale.toFixed(3) + ')';
+      }
+    }
+    function requestFit() {
+      if (pendingLayout) { return; }
+      pendingLayout = true;
+      requestAnimationFrame(function () {
+        pendingLayout = false;
+        fitToWindow();
+      });
     }
 
-    function applyExpressionImmediate(expr) {
-      if (stateTimeout) { clearTimeout(stateTimeout); stateTimeout = null; }
-      robot.className = 'eilik-robot';
-      robot.classList.add(expr);
-      currentState = expr;
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+    function mouthToPath(m) {
+      return 'M ' + m.p0.x + ',' + m.p0.y +
+        ' C ' + m.c1.x + ',' + m.c1.y +
+        ' ' + m.c2.x + ',' + m.c2.y +
+        ' ' + m.p3.x + ',' + m.p3.y;
+    }
+    function interpMouth(from, to, t) {
+      return {
+        p0: { x: lerp(from.p0.x, to.p0.x, t), y: lerp(from.p0.y, to.p0.y, t) },
+        c1: { x: lerp(from.c1.x, to.c1.x, t), y: lerp(from.c1.y, to.c1.y, t) },
+        c2: { x: lerp(from.c2.x, to.c2.x, t), y: lerp(from.c2.y, to.c2.y, t) },
+        p3: { x: lerp(from.p3.x, to.p3.x, t), y: lerp(from.p3.y, to.p3.y, t) }
+      };
+    }
+    function applyMouth(m) { mouthStroke.setAttribute('d', mouthToPath(m)); }
+
+    var expression = (function () {
+      var state = 'IDLE';
+      var queue = [];
+      var holdTimer = null;
+      var playing = false;
+
+      function normalize(value) {
+        var up = String(value || '').toUpperCase();
+        return VALID_STATES.has(up) ? up : 'IDLE';
+      }
+      function morphMouth(target) {
+        if (!currentMouth) { currentMouth = target; applyMouth(target); return; }
+        var from = currentMouth;
+        var start = performance.now();
+        var dur = 300;
+        if (mouthTween) { cancelAnimationFrame(mouthTween); mouthTween = null; }
+        function frame(now) {
+          var t = Math.min(1, (now - start) / dur);
+          var e = easeInOutCubic(t);
+          currentMouth = interpMouth(from, target, e);
+          applyMouth(currentMouth);
+          if (t < 1) { mouthTween = requestAnimationFrame(frame); }
+          else { currentMouth = target; applyMouth(target); mouthTween = null; }
+        }
+        mouthTween = requestAnimationFrame(frame);
+      }
+      function setAccent(s) {
+        chatCard.classList.remove('state-idle', 'state-thinking', 'state-fix', 'state-confused', 'state-error');
+        var accent = ACCENTS[s];
+        root.style.setProperty('--eye-color', accent);
+        root.style.setProperty('--face-color', accent);
+        chatCard.classList.add(ACCENT_CLASS[s] || 'state-idle');
+      }
+      function cancelBlink() {
+        if (blinkTimer) { clearTimeout(blinkTimer); blinkTimer = null; }
+        if (blinkOffTimer) { clearTimeout(blinkOffTimer); blinkOffTimer = null; }
+        robot.classList.remove('blinking');
+      }
+      function scheduleBlink() {
+        cancelBlink();
+        blinkTimer = setTimeout(function () {
+          blinkTimer = null;
+          if (expression.state !== 'IDLE') { scheduleBlink(); return; }
+          robot.classList.add('blinking');
+          blinkOffTimer = setTimeout(function () {
+            blinkOffTimer = null;
+            robot.classList.remove('blinking');
+            scheduleBlink();
+          }, 130);
+        }, 2200 + Math.random() * 3200);
+      }
+      function show(s) {
+        state = normalize(s);
+        robot.classList.remove('expr-idle', 'expr-thinking', 'expr-happy', 'expr-confused', 'expr-helpful', 'expr-alert');
+        robot.classList.add('expr-' + state.toLowerCase());
+        if (state === 'IDLE') { scheduleBlink(); } else { cancelBlink(); }
+        setAccent(state);
+        morphMouth(MOUTHS[state]);
+        return state;
+      }
+      function arrive(s) {
+        var hold = TRANSIENT_HOLD_MS[s] || 0;
+        this.playing = true;
+        this.state = show(s);
+        holdTimer = setTimeout(function () {
+          holdTimer = null;
+          expression.playing = false;
+          if (expression.queue.length) { expression._next(); }
+          else if (expression.state !== 'IDLE') { expression.state = expression.show('IDLE'); }
+        }, hold || 400);
+      }
+      function _next() {
+        if (this.playing) { return; }
+        if (this.queue.length) { this.arrive(this.queue.shift()); }
+        else if (this.state !== 'IDLE') { this.arrive('IDLE'); }
+      }
+      function go(s) {
+        s = normalize(s);
+        if (this.state === s && this.playing) { return; }
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+        this.queue.length = 0;
+        this.playing = false;
+        this.arrive(s);
+      }
+      return {
+        state: state,
+        queue: queue,
+        go: go,
+        arrive: arrive,
+        _next: _next,
+        show: show,
+        setAccent: setAccent
+      };
+    })();
+
+    function resolveExpression(expr, action) {
+      var e = String(expr || '').toLowerCase();
+      var a = String(action || '').toUpperCase();
+      if (a === 'ALERT' || a === 'ALERT_RED' || a === 'ERROR' || a === 'WARNING' || a === 'FAIL' || e === 'alert' || e === 'sad' || e === 'worried' || e === 'shocked' || e === 'error' || e === 'alarm') return 'ALERT';
+      if (a === 'JUMP' || a === 'NOD' || e === 'happy' || e === 'joy' || e === 'excited') return 'HAPPY';
+      if (a === 'THINKING' || e === 'thinking' || e === 'processing' || e === 'loading') return 'THINKING';
+      if (a === 'CONFUSED' || e === 'confused' || e === 'puzzled' || e === 'unsure' || e === 'huh') return 'CONFUSED';
+      if (a === 'HELPFUL' || e === 'helpful' || e === 'working' || e === 'friendly') return 'HELPFUL';
+      if (VALID_STATES.has(a)) { return a; }
+      var up = String(expr || '').toUpperCase();
+      if (VALID_STATES.has(up)) { return up; }
+      return 'IDLE';
+    }
+    function maybeExpressionFromMap(payload) {
+      if (payload.state) { return resolveExpression(payload.state, payload.action); }
+      return resolveExpression(payload.expression, payload.action);
     }
 
-    function setChatState(state, label) {
-      const color = palette[state] || palette.idle;
-      root.style.setProperty('--eye-color', color);
-      chatCard.style.borderColor = color;
-      chatCard.style.boxShadow = `0 0 14px ${color}60`;
-      chatCard.textContent = label;
+    function setStatus(text) {
+      lastStatus = text;
+      cancelText();
+      chatCard.textContent = text;
+      requestFit();
+    }
+
+    function formatSpeech(text) {
+      return String(text || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    }
+
+    function showSpeech(text) {
+      cancelText();
+      chatCard.classList.add('typing');
+      chatCard.textContent = '';
+      requestFit();
+      var clean = formatSpeech(text);
+      chatCard.setAttribute('aria-label', clean);
+      var speed = clean.length > 180 ? 6 : clean.length > 90 ? 10 : 15;
+      var i = 0;
+      typeTimer = setInterval(function () {
+        if (i < clean.length) {
+          chatCard.textContent = clean.slice(0, ++i);
+          chatCard.scrollTop = chatCard.scrollHeight;
+          requestFit();
+        } else {
+          clearInterval(typeTimer);
+          typeTimer = null;
+          chatCard.classList.remove('typing');
+          chatCard.textContent = clean;
+          chatCard.scrollTop = chatCard.scrollHeight;
+          requestFit();
+          dismissTimer = setTimeout(function () {
+            dismissTimer = null;
+            chatCard.textContent = lastStatus;
+            requestFit();
+          }, BUBBLE_HOLD_MS);
+        }
+      }, speed);
+    }
+    function cancelText() {
+      if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
+      if (dismissTimer) { clearTimeout(dismissTimer); dismissTimer = null; }
+      chatCard.classList.remove('typing');
+      requestFit();
     }
 
     function handleBrainMessage(msg) {
-      const t = (msg.type || '').toUpperCase();
+      var t = (msg.type || '').toUpperCase();
+      var p, speech;
 
       if (t === 'ROBOT_STATE') {
-        const expr = (msg.expression || '').toLowerCase();
-        const action = (msg.action || '').toUpperCase();
-        let targetExpr = 'neutral';
-        let label = msg.speechBubble || 'CONNECTED';
-        if (action === 'ALERT_RED' || expr === 'sad' || expr === 'worried' || expr === 'shocked') {
-          setChatState('error', label); targetExpr = 'sad';
-        } else if (expr === 'happy' || action === 'JUMP' || action === 'NOD') {
-          setChatState('fix', label); targetExpr = 'happy';
-        } else {
-          setChatState('idle', label); targetExpr = 'neutral';
-        }
-        setExpression(targetExpr);
+        p = msg;
+        expression.go(resolveExpression(p.expression, p.action));
+        speech = p.speechBubble;
+        if (speech) { showSpeech(speech); }
+        else { setStatus('CONNECTED'); }
       } else if (t === 'ROBOT_STATE_UPDATE') {
-        const p = msg.payload || {};
-        const expr = (p.expression || 'NEUTRAL').toLowerCase();
-        const label = p.speechBubble || 'CONNECTED';
-        let targetExpr = 'neutral';
-        if (expr === 'confused' || expr === 'alert') {
-          setChatState('error', label); targetExpr = 'sad';
-        } else if (expr === 'happy' || expr === 'helpful') {
-          setChatState('fix', label); targetExpr = 'happy';
-        } else if (expr === 'thinking') {
-          setChatState('idle', label); targetExpr = 'thinking';
-        } else {
-          setChatState('idle', label); targetExpr = 'neutral';
-        }
-        setExpression(targetExpr);
-      } else if (t === 'CONNECTION_STATUS') {
-        setChatState('idle', msg.status === 'CONNECTED' ? 'CONNECTED' : 'DISCONNECTED');
-        applyExpressionImmediate('neutral');
+        var payload = msg.payload || {};
+        speech = payload.speechBubble || msg.speech;
+        expression.go(maybeExpressionFromMap(payload));
+        if (speech) { showSpeech(speech); }
+        else { setStatus('CONNECTED'); }
       } else if (t === 'ACTION') {
-        const anim = (msg.animation || '').toLowerCase();
-        let targetExpr = 'neutral';
-        let label = msg.speech || 'CONNECTED';
-        if (anim === 'alert_red' || anim === 'error') {
-          setChatState('error', label); targetExpr = 'sad';
-        } else if (anim === 'happy' || anim === 'jump' || anim === 'nod') {
-          setChatState('fix', label); targetExpr = 'happy';
-        } else {
-          setChatState('idle', label); targetExpr = anim === 'thinking' ? 'thinking' : 'neutral';
-        }
-        setExpression(targetExpr);
+        p = msg;
+        expression.go(resolveExpression(p.expression, p.animation));
+        speech = p.speech;
+        if (speech) { showSpeech(speech); }
+        else { setStatus('CONNECTED'); }
+      } else if (t === 'CONNECTION_STATUS') {
+        setStatus(msg.status === 'CONNECTED' ? 'CONNECTED' : 'DISCONNECTED');
+    expression.go('IDLE');
+    requestFit();
+    window.addEventListener('resize', requestFit);
       } else if (t === 'WINDOW_VISIBILITY') {
         document.body.style.opacity = msg.visible ? '1' : '0.3';
       }
     }
 
-    let reconnectAttempt = 0;
-    const MAX_RECONNECT_DELAY = 30000;
-    const BASE_RECONNECT_DELAY = 3000;
+    function maybeExpressionFromMap(payload) {
+      if (payload.action || payload.expression) {
+        return resolveExpression(payload.expression || payload.action, payload.action);
+      }
+      if (payload.state) { return resolveExpression(payload.state, payload.action); }
+      return resolveExpression('', '');
+    }
+
+    expression.go('IDLE');
+
+    var reconnectAttempt = 0;
+    var MAX_RECONNECT_DELAY = 30000;
+    var BASE_RECONNECT_DELAY = 3000;
 
     function getReconnectDelay() {
-      const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY);
+      var delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY);
       return delay + Math.random() * 3000;
     }
 
     function connectWs() {
-      let ws;
+      var ws;
       try {
         ws = new WebSocket('ws://localhost:8055');
-        ws.onopen = () => { reconnectAttempt = 0; setChatState('idle', 'CONNECTED'); applyExpressionImmediate('neutral'); };
-        ws.onmessage = (e) => { let msg; try { msg = JSON.parse(e.data); } catch { return; } handleBrainMessage(msg); };
-        ws.onclose = () => { const d = getReconnectDelay(); reconnectAttempt++; chatCard.textContent = 'RECONNECTING'; setTimeout(connectWs, d); };
-        ws.onerror = () => {};
-      } catch (_) { const d = getReconnectDelay(); reconnectAttempt++; chatCard.textContent = 'RECONNECTING'; setTimeout(connectWs, d); }
+        ws.onopen = function () { reconnectAttempt = 0; setStatus('CONNECTED'); expression.go('IDLE'); };
+        ws.onmessage = function (e) {
+          var msg;
+          try { msg = JSON.parse(e.data); } catch (_) { return; }
+          handleBrainMessage(msg);
+        };
+        ws.onclose = function () { var d = getReconnectDelay(); reconnectAttempt += 1; setStatus('RECONNECTING'); setTimeout(connectWs, d); };
+        ws.onerror = function () {};
+      } catch (_) {
+        var d = getReconnectDelay();
+        reconnectAttempt += 1;
+        setStatus('RECONNECTING');
+        setTimeout(connectWs, d);
+      }
     }
 
-    ipcRenderer.on('brain-event', (_event, data) => { handleBrainMessage(data); });
+    ipcRenderer.on('brain-event', function (_event, data) { handleBrainMessage(data); });
     connectWs();
   </script>
 </body>

@@ -27,7 +27,11 @@
       { "command": "botx.explainError", "title": "Explain Error with BotX", "category": "BotX" },
       { "command": "botx.showRobot", "title": "Show BotX Companion", "category": "BotX" },
       { "command": "botx.hideRobot", "title": "Hide BotX Companion", "category": "BotX" },
-      { "command": "botx.setApiKey", "title": "Set BotX API Key", "category": "BotX" }
+      { "command": "botx.setApiKey", "title": "Set BotX API Key", "category": "BotX" },
+      { "command": "botx.applyAiFix", "title": "Apply BotX Suggested Fix", "category": "BotX" },
+      { "command": "botx.setupWorkspaceEnv", "title": "Setup Workspace Environment (.env)", "category": "BotX" },
+      { "command": "botx.resolveGitConflict", "title": "Resolve Git Merge Conflict with BotX", "category": "BotX" },
+      { "command": "botx.migrateApiCall", "title": "Migrate Deprecated API with BotX", "category": "BotX" }
     ],
     "configuration": {
       "title": "BotX",

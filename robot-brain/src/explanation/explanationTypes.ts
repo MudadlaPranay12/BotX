@@ -8,6 +8,7 @@ export enum ExplanationType {
     WHY_GIT_ACTION = "WHY_GIT_ACTION",
     WHY_EXTENSION = "WHY_EXTENSION",
     WHY_CELEBRATE = "WHY_CELEBRATE",
+    WHY_LOGIC_REVIEW = "WHY_LOGIC_REVIEW",
     WHY_NONE = "WHY_NONE"
 }
 
@@ -35,6 +36,17 @@ export interface DiagnosticAnalysisRequest {
     warnings: DiagnosticError[];
     errorCount: number;
     warningCount: number;
+    resolvedDependencies?: string;
+}
+
+export interface LogicReviewRequest {
+    file: string;
+    fileName: string;
+    language: string;
+    functionName: string;
+    startLine: number;
+    fileContent: string;
+    functionCode: string;
 }
 
 export interface Explanation {
